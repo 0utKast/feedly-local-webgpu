@@ -29,7 +29,7 @@
           </button>
           <button type="button" class="nav-item" data-view="keywords">
             <span class="nav-item-label">Alertas de búsqueda</span>
-            <span class="nav-badge-subtle">Google/Reddit</span>
+            <span id="count-keywords" class="nav-count">0</span>
           </button>
           <button type="button" class="nav-item" data-view="saved">
             <span class="nav-item-label">Guardadas (Leer luego)</span>
@@ -37,7 +37,7 @@
           </button>
           <button type="button" class="nav-item" data-view="notes">
             <span class="nav-item-label">Con notas</span>
-            <span class="nav-dot-note" aria-hidden="true"></span>
+            <span id="count-notes" class="nav-count">0</span>
           </button>
         </nav>
 
@@ -98,7 +98,7 @@
             <input
               type="search"
               id="search-input"
-              placeholder="Filtrar noticias cargadas por título, extracto, fuente o nota..."
+              placeholder="Filtrar noticias por título, extracto, fuente o nota..."
               autocomplete="off"
             />
             <button type="button" id="btn-clear-search" class="btn-clear-search" hidden title="Limpiar búsqueda">×</button>
@@ -108,6 +108,10 @@
         <div class="topbar-end">
           <button type="button" id="btn-undo-dismiss" class="btn-subtle btn-undo" hidden title="Restaurar las últimas noticias leídas y eliminadas">
             ↩ Deshacer borrado
+          </button>
+
+          <button type="button" id="btn-toggle-autoread" class="btn-subtle is-active" title="Marcar automáticamente como leídas las noticias al hacer scroll o al abrirlas">
+            ✓ Auto-leer al bajar
           </button>
 
           <div class="cols-selector" title="Tarjetas por fila">
@@ -120,7 +124,7 @@
             </select>
           </div>
 
-          <button type="button" id="btn-mark-all-read" class="btn-subtle" title="Marcar todas las noticias visibles como leídas y eliminarlas (excepto las guardadas)">
+          <button type="button" id="btn-mark-all-read" class="btn-subtle" title="Marcar todas las noticias de este apartado como leídas y eliminarlas (excepto las guardadas)">
             ✓ Leídas (Limpiar vista)
           </button>
 
@@ -140,6 +144,13 @@
 
         <div id="cards-grid" class="cards-grid">
           <!-- Tarjetas de noticias renderizadas dinámicamente -->
+        </div>
+
+        <div id="stream-end-box" class="stream-end-box" hidden>
+          <p id="stream-end-text" class="stream-end-text">Fin de las noticias en este apartado</p>
+          <button type="button" id="btn-mark-remaining-read" class="btn-subtle">
+            ✓ Limpiar noticias leídas de la vista
+          </button>
         </div>
       </section>
     </main>

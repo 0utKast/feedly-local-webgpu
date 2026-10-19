@@ -8,10 +8,13 @@ const state = {
   feedId: null,
   viewTitle: 'Todas las noticias',
   search: '',
+  autoReadOnScroll: localStorage.getItem('feedly_auto_read_scroll') !== 'false',
+  totalMatching: 0,
+  isLoadingMore: false,
   sidebar: {
     categories: [],
     feeds: [],
-    totals: { all: 0, saved: 0, feedsTotal: 0, feedsWithError: 0 },
+    totals: { all: 0, keywords: 0, saved: 0, notes: 0, feedsTotal: 0, feedsWithError: 0 },
     canUndoCount: 0,
     syncStatus: { isSyncing: false, completed: 0, total: 0 }
   },
@@ -21,11 +24,20 @@ const state = {
   expandedCategories: new Set()
 };
 
+// Seguimiento en tiempo real de lectura durante el scroll
+const seenCardIds = new Set();
+const readInSessionIds = new Set();
+const pendingReadIds = new Set();
+let flushReadTimer = null;
+let inFlightFlushPromise = null;
+
 // Referencias DOM
 const elAppShell = document.getElementById('app-shell');
 const elGpuBadge = document.getElementById('gpu-badge');
 const elCountAll = document.getElementById('count-all');
+const elCountKeywords = document.getElementById('count-keywords');
 const elCountSaved = document.getElementById('count-saved');
+const elCountNotes = document.getElementById('count-notes');
 const elCountFeedsTotal = document.getElementById('count-feeds-total');
 const elCategoriesTree = document.getElementById('categories-tree');
 const elViewTitle = document.getElementById('current-view-title');
@@ -33,13 +45,18 @@ const elViewSubtitle = document.getElementById('current-view-subtitle');
 const elSearchInput = document.getElementById('search-input');
 const elBtnClearSearch = document.getElementById('btn-clear-search');
 const elBtnUndo = document.getElementById('btn-undo-dismiss');
+const elBtnToggleAutoRead = document.getElementById('btn-toggle-autoread');
 const elSelectCols = document.getElementById('select-columns');
 const elSelectTone = document.getElementById('select-tone-mode');
 const elBtnMarkAllRead = document.getElementById('btn-mark-all-read');
 const elBtnSync = document.getElementById('btn-sync');
 const elSyncLabel = document.getElementById('sync-label');
+const elStreamContainer = document.getElementById('stream-container');
 const elCardsGrid = document.getElementById('cards-grid');
 const elEmptyState = document.getElementById('empty-state');
+const elStreamEndBox = document.getElementById('stream-end-box');
+const elStreamEndText = document.getElementById('stream-end-text');
+const elBtnMarkRemainingRead = document.getElementById('btn-mark-remaining-read');
 
 // Reader Drawer DOM
 const elReaderBackdrop = document.getElementById('reader-backdrop');
@@ -120,12 +137,208 @@ function escapeHtml(str) {
 }
 
 // ============================================================================
-// Carga de datos y seguimiento de sincronización en vivo
+// Marcado en Vivo de Noticias Leídas (Optimista + Sincronización con SQLite)
+// ============================================================================
+
+function syncAutoReadToggleUi() {
+  if (!elBtnToggleAutoRead) return;
+  elBtnToggleAutoRead.classList.toggle('is-active', state.autoReadOnScroll);
+  elBtnToggleAutoRead.textContent = state.autoReadOnScroll
+    ? '✓ Auto-leer al bajar'
+    : '○ Auto-leer al bajar';
+}
+
+function updateSidebarCountsInPlace() {
+  elCountAll.textContent = Math.max(0, state.sidebar.totals.all || 0);
+  if (elCountKeywords) elCountKeywords.textContent = Math.max(0, state.sidebar.totals.keywords || 0);
+  elCountSaved.textContent = Math.max(0, state.sidebar.totals.saved || 0);
+  if (elCountNotes) elCountNotes.textContent = Math.max(0, state.sidebar.totals.notes || 0);
+  elCountFeedsTotal.textContent = state.sidebar.totals.feedsTotal || state.sidebar.feeds.length;
+
+  for (const cat of state.sidebar.categories) {
+    const feedsInCat = state.sidebar.feeds.filter((f) => f.category_id === cat.id);
+    const catCount = feedsInCat.reduce((acc, f) => acc + Math.max(0, Number(f.article_count) || 0), 0);
+    const catBadge = elCategoriesTree.querySelector(`[data-cat-count="${cat.id}"]`);
+    if (catBadge) catBadge.textContent = catCount;
+  }
+
+  for (const feed of state.sidebar.feeds) {
+    const feedBadge = elCategoriesTree.querySelector(`[data-feed-count="${feed.id}"]`);
+    if (feedBadge) {
+      feedBadge.textContent = feed.error_msg ? '!' : Math.max(0, Number(feed.article_count) || 0);
+    }
+  }
+}
+
+function markArticleReadOptimistic(article, source = 'scroll') {
+  if (!article) return;
+  const isProtected = article.is_saved === 1 || Boolean(article.note && article.note.trim());
+  if (isProtected) return;
+  if (readInSessionIds.has(article.id)) return;
+
+  readInSessionIds.add(article.id);
+  article._isRead = true;
+
+  // Actualizar visualmente la tarjeta sin eliminarla del DOM durante el scroll
+  const cardEl = elCardsGrid.querySelector(`.news-card[data-id="${article.id}"]`);
+  if (cardEl) {
+    cardEl.classList.add('is-read');
+    const btnRead = cardEl.querySelector('.btn-card-read');
+    if (btnRead) {
+      btnRead.textContent = '✓ Leída · Ocultar';
+      btnRead.title = 'Ya marcada como leída y descontada. Pulsa para retirarla de la vista';
+    }
+  }
+
+  // Descontar al instante en el estado local de la barra lateral y vista actual
+  state.sidebar.totals.all = Math.max(0, (Number(state.sidebar.totals.all) || 0) - 1);
+  if (article.feed_type && article.feed_type.startsWith('keyword_')) {
+    state.sidebar.totals.keywords = Math.max(0, (Number(state.sidebar.totals.keywords) || 0) - 1);
+  }
+  const feedObj = state.sidebar.feeds.find((f) => f.id === article.feed_id);
+  if (feedObj) {
+    feedObj.article_count = Math.max(0, (Number(feedObj.article_count) || 0) - 1);
+  }
+  state.totalMatching = Math.max(0, (Number(state.totalMatching) || 0) - 1);
+
+  updateSidebarCountsInPlace();
+  renderTopbar();
+  updateStreamEndBox();
+
+  pendingReadIds.add(article.id);
+  scheduleFlushPendingReads(source);
+}
+
+function scheduleFlushPendingReads(source = 'scroll') {
+  if (flushReadTimer) clearTimeout(flushReadTimer);
+  flushReadTimer = setTimeout(() => {
+    flushReadTimer = null;
+    flushPendingReadArticles(source).catch(() => {});
+  }, 260);
+}
+
+async function flushPendingReadArticles(source = 'scroll') {
+  if (flushReadTimer) {
+    clearTimeout(flushReadTimer);
+    flushReadTimer = null;
+  }
+  if (inFlightFlushPromise) {
+    await inFlightFlushPromise.catch(() => {});
+  }
+  if (pendingReadIds.size === 0) return;
+
+  const idsToSend = Array.from(pendingReadIds);
+  pendingReadIds.clear();
+
+  const task = (async () => {
+    try {
+      const res = await fetch('/api/articles/mark-read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        keepalive: true,
+        body: JSON.stringify({ articleIds: idsToSend, source })
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.sidebar) {
+        state.sidebar = data.sidebar;
+        // Si mientras viajaba la petición se marcaron más noticias en el scroll, descontarlas también
+        if (pendingReadIds.size > 0) {
+          for (const pendingId of pendingReadIds) {
+            const art = state.articles.find((a) => a.id === pendingId);
+            if (!art) continue;
+            state.sidebar.totals.all = Math.max(0, (state.sidebar.totals.all || 0) - 1);
+            if (art.feed_type && art.feed_type.startsWith('keyword_')) {
+              state.sidebar.totals.keywords = Math.max(0, (state.sidebar.totals.keywords || 0) - 1);
+            }
+            const f = state.sidebar.feeds.find((feed) => feed.id === art.feed_id);
+            if (f) f.article_count = Math.max(0, (Number(f.article_count) || 0) - 1);
+          }
+        }
+        updateSidebarCountsInPlace();
+        renderTopbar();
+      }
+    } catch {}
+  })();
+
+  inFlightFlushPromise = task;
+  try {
+    await task;
+  } finally {
+    if (inFlightFlushPromise === task) {
+      inFlightFlushPromise = null;
+    }
+  }
+}
+
+// ============================================================================
+// Carga de datos, Paginación Continua y Sincronización en Vivo
 // ============================================================================
 
 let syncPollTimer = null;
 
-async function fetchState() {
+function updateSyncButtonUi() {
+  const ss = state.sidebar.syncStatus;
+  if (ss && ss.isSyncing) {
+    elBtnSync.classList.add('syncing');
+    elSyncLabel.textContent = `Sincronizando ${ss.completed}/${ss.total}`;
+    if (!syncPollTimer) {
+      syncPollTimer = setTimeout(() => {
+        syncPollTimer = null;
+        pollSyncProgress().catch(() => {});
+      }, 2200);
+    }
+  } else {
+    elBtnSync.classList.remove('syncing');
+    elSyncLabel.textContent = 'Recargar';
+  }
+}
+
+// Polling en segundo plano mientras sincroniza: actualiza contadores sin destruir el scroll del usuario
+async function pollSyncProgress() {
+  await flushPendingReadArticles('scroll');
+
+  const params = new URLSearchParams();
+  if (state.feedId) params.set('feedId', state.feedId);
+  if (state.categoryId) params.set('categoryId', state.categoryId);
+  if (state.filter) params.set('filter', state.filter);
+  if (state.search) params.set('search', state.search);
+
+  const res = await fetch(`/api/state?${params.toString()}`);
+  if (!res.ok) return;
+  const data = await res.json();
+
+  state.sidebar = data.sidebar;
+  state.totalMatching = data.totalMatching ?? data.articles.length;
+
+  renderSidebar();
+  renderTopbar();
+  if (elManageDialog.open) {
+    renderFeedManagerList();
+  }
+
+  // Si la vista estaba vacía y acaban de entrar noticias nuevas, o si terminó la sincronización y estamos arriba del todo
+  const existingIds = new Set(state.articles.map((a) => a.id));
+  const incomingUnread = data.articles.filter(
+    (a) => !existingIds.has(a.id) && !readInSessionIds.has(a.id)
+  );
+
+  if (state.articles.length === 0 && incomingUnread.length > 0) {
+    state.articles = incomingUnread;
+    renderCardsGrid();
+  } else if (incomingUnread.length > 0 && elStreamContainer.scrollTop < 80) {
+    // Añadir silenciosamente las nuevas noticias al final o inicio sin reinsertar las ya leídas
+    state.articles.push(...incomingUnread);
+    appendArticlesToGrid(incomingUnread);
+  }
+
+  updateStreamEndBox();
+  updateSyncButtonUi();
+}
+
+async function fetchState({ resetScroll = true } = {}) {
+  await flushPendingReadArticles('scroll');
+
   const params = new URLSearchParams();
   if (state.feedId) params.set('feedId', state.feedId);
   if (state.categoryId) params.set('categoryId', state.categoryId);
@@ -136,36 +349,100 @@ async function fetchState() {
   if (!res.ok) throw new Error('Error al obtener estado');
   const data = await res.json();
 
+  seenCardIds.clear();
+  readInSessionIds.clear();
+
   state.sidebar = data.sidebar;
   state.articles = data.articles;
+  state.totalMatching = data.totalMatching ?? data.articles.length;
 
   renderSidebar();
   renderTopbar();
   renderCardsGrid();
+  if (resetScroll && elStreamContainer) {
+    elStreamContainer.scrollTop = 0;
+  }
   if (elManageDialog.open) {
     renderFeedManagerList();
   }
 
-  // Si el servidor está sincronizando lotes en segundo plano, hacer polling suave
-  const ss = state.sidebar.syncStatus;
-  if (ss && ss.isSyncing) {
-    elBtnSync.classList.add('syncing');
-    elSyncLabel.textContent = `Sincronizando ${ss.completed}/${ss.total}`;
-    if (!syncPollTimer) {
-      syncPollTimer = setTimeout(() => {
-        syncPollTimer = null;
-        fetchState().catch(() => {});
-      }, 2200);
+  updateSyncButtonUi();
+  requestAnimationFrame(() => markVisibleCardsAsSeen());
+}
+
+function getUnreadInDomCount() {
+  let count = 0;
+  for (const a of state.articles) {
+    if (!readInSessionIds.has(a.id)) count++;
+  }
+  return count;
+}
+
+function hasMoreUnreadToLoad() {
+  return state.totalMatching > getUnreadInDomCount();
+}
+
+async function loadMoreArticles() {
+  if (state.isLoadingMore) return;
+  if (!hasMoreUnreadToLoad()) return;
+
+  state.isLoadingMore = true;
+  updateStreamEndBox();
+
+  try {
+    await flushPendingReadArticles('scroll');
+
+    const params = new URLSearchParams();
+    if (state.feedId) params.set('feedId', state.feedId);
+    if (state.categoryId) params.set('categoryId', state.categoryId);
+    if (state.filter) params.set('filter', state.filter);
+    if (state.search) params.set('search', state.search);
+
+    const currentDomIds = state.articles.map((a) => a.id);
+    if (currentDomIds.length > 0) {
+      params.set('excludeIds', currentDomIds.join(','));
     }
-  } else {
-    elBtnSync.classList.remove('syncing');
-    elSyncLabel.textContent = 'Recargar';
+
+    const res = await fetch(`/api/articles?${params.toString()}`);
+    if (!res.ok) return;
+    const data = await res.json();
+
+    if (data.sidebar) {
+      state.sidebar = data.sidebar;
+      updateSidebarCountsInPlace();
+    }
+    if (typeof data.totalMatching === 'number') {
+      state.totalMatching = data.totalMatching;
+    }
+
+    const existingIds = new Set(state.articles.map((a) => a.id));
+    const freshArticles = (data.articles || []).filter(
+      (a) => !existingIds.has(a.id) && !readInSessionIds.has(a.id)
+    );
+
+    if (freshArticles.length > 0) {
+      state.articles.push(...freshArticles);
+      appendArticlesToGrid(freshArticles);
+      requestAnimationFrame(() => markVisibleCardsAsSeen());
+    } else {
+      // No quedan más artículos distintos que cargar
+      state.totalMatching = getUnreadInDomCount();
+    }
+
+    renderTopbar();
+  } finally {
+    state.isLoadingMore = false;
+    updateStreamEndBox();
   }
 }
 
 async function triggerSync() {
   elBtnSync.classList.add('syncing');
-  elSyncLabel.textContent = 'Iniciando...';
+  elSyncLabel.textContent = 'Actualizando...';
+
+  // 1. Volcar inmediatamente a SQLite cualquier noticia que se haya leído haciendo scroll
+  await flushPendingReadArticles('scroll');
+
   const payload = {};
   if (state.feedId) payload.feedId = state.feedId;
   else if (state.categoryId) payload.categoryId = state.categoryId;
@@ -175,7 +452,9 @@ async function triggerSync() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
-  await fetchState();
+
+  // 2. Recargar estado limpio desde el principio (las noticias ya leídas han sido eliminadas de SQLite)
+  await fetchState({ resetScroll: true });
 }
 
 // ============================================================================
@@ -183,8 +462,10 @@ async function triggerSync() {
 // ============================================================================
 
 function renderSidebar() {
-  elCountAll.textContent = state.sidebar.totals.all;
-  elCountSaved.textContent = state.sidebar.totals.saved;
+  elCountAll.textContent = Math.max(0, state.sidebar.totals.all || 0);
+  if (elCountKeywords) elCountKeywords.textContent = Math.max(0, state.sidebar.totals.keywords || 0);
+  elCountSaved.textContent = Math.max(0, state.sidebar.totals.saved || 0);
+  if (elCountNotes) elCountNotes.textContent = Math.max(0, state.sidebar.totals.notes || 0);
   elCountFeedsTotal.textContent = state.sidebar.totals.feedsTotal || state.sidebar.feeds.length;
 
   document.querySelectorAll('.nav-section .nav-item').forEach((btn) => {
@@ -203,7 +484,7 @@ function renderSidebar() {
     const feedsInCat = state.sidebar.feeds.filter((f) => f.category_id === cat.id);
     if (feedsInCat.length === 0) continue;
 
-    const catCount = feedsInCat.reduce((acc, f) => acc + (Number(f.article_count) || 0), 0);
+    const catCount = feedsInCat.reduce((acc, f) => acc + Math.max(0, Number(f.article_count) || 0), 0);
     const hasActiveFeedInside = feedsInCat.some((f) => f.id === state.feedId);
     const isCatActive = state.categoryId === cat.id || (!state.expandedCategories.has(cat.id) && hasActiveFeedInside);
 
@@ -218,7 +499,7 @@ function renderSidebar() {
     catSummary.innerHTML = `
       <span class="cat-chevron" title="Desplegar / contraer fuentes" aria-hidden="true">▸</span>
       <span class="nav-item-label">${escapeHtml(cat.name)}</span>
-      <span class="nav-count">${catCount}</span>
+      <span class="nav-count" data-cat-count="${cat.id}">${catCount}</span>
     `;
 
     catSummary.addEventListener('click', (e) => {
@@ -286,7 +567,7 @@ function renderSidebar() {
         : `${feed.title}\n(${feed.feed_url})`;
       selectBtn.innerHTML = `
         <span class="feed-title-text">${escapeHtml(feed.title)}</span>
-        <span class="nav-count">${feed.error_msg ? '!' : feed.article_count || 0}</span>
+        <span class="nav-count" data-feed-count="${feed.id}">${feed.error_msg ? '!' : feed.article_count || 0}</span>
       `;
       selectBtn.addEventListener('click', () => {
         state.expandedCategories.add(cat.id);
@@ -326,19 +607,215 @@ function renderSidebar() {
 
 function renderTopbar() {
   elViewTitle.textContent = state.viewTitle;
-  const count = state.articles.length;
-  elViewSubtitle.textContent = count === 1 ? '1 noticia' : `${count} noticias mostradas`;
-  elBtnUndo.hidden = !(state.sidebar.canUndoCount > 0);
+  const totalInView = Math.max(0, state.totalMatching || 0);
+  const readInDom = readInSessionIds.size;
+
+  if (state.filter === 'saved' || state.filter === 'notes') {
+    elViewSubtitle.textContent =
+      totalInView === 1 ? '1 noticia guardada' : `${totalInView} noticias guardadas`;
+  } else if (readInDom > 0) {
+    elViewSubtitle.textContent = `${totalInView} sin leer · ${readInDom} leídas en esta sesión`;
+  } else {
+    elViewSubtitle.textContent =
+      totalInView === 1 ? '1 noticia sin leer' : `${totalInView} noticias sin leer`;
+  }
+
+  elBtnUndo.hidden = !(state.sidebar.canUndoCount > 0 || readInSessionIds.size > 0);
+  syncAutoReadToggleUi();
+}
+
+function updateStreamEndBox() {
+  if (!elStreamEndBox) return;
+  if (state.articles.length === 0) {
+    elStreamEndBox.hidden = true;
+    return;
+  }
+
+  elStreamEndBox.hidden = false;
+  if (state.isLoadingMore) {
+    elStreamEndText.textContent = 'Cargando siguientes noticias de este apartado...';
+    elBtnMarkRemainingRead.hidden = true;
+  } else if (hasMoreUnreadToLoad()) {
+    elStreamEndText.textContent = `Mostrando ${state.articles.length} noticias · Quedan ${state.totalMatching} sin leer en este apartado`;
+    elBtnMarkRemainingRead.hidden = false;
+    elBtnMarkRemainingRead.textContent = 'Cargar más noticias ahora';
+  } else {
+    const unreadLeft = getUnreadInDomCount();
+    if (unreadLeft > 0) {
+      elStreamEndText.textContent = `Has llegado al final (${unreadLeft} noticias en pantalla aún sin marcar)`;
+      elBtnMarkRemainingRead.hidden = false;
+      elBtnMarkRemainingRead.textContent = '✓ Marcar todas como leídas y limpiar vista';
+    } else {
+      elStreamEndText.textContent = '✓ Has leído todas las noticias de este apartado (0 sin leer)';
+      elBtnMarkRemainingRead.hidden = false;
+      elBtnMarkRemainingRead.textContent = '✓ Ocultar tarjetas ya leídas';
+    }
+  }
 }
 
 // ============================================================================
 // Renderizado de las Tarjetas (3 por fila + WebGPU/WGSL)
 // ============================================================================
 
+function createArticleCardElement(article) {
+  const isSaved = article.is_saved === 1;
+  const hasNote = Boolean(article.note && article.note.trim());
+  const isRead = readInSessionIds.has(article.id) || Boolean(article._isRead);
+
+  const card = document.createElement('article');
+  card.className =
+    'news-card' + (hasNote ? ' has-note' : '') + (isRead && !isSaved && !hasNote ? ' is-read' : '');
+  card.dataset.id = article.id;
+
+  // 1. Cabecera de Imagen 16:9 procesada con WebGPU/WGSL
+  const mediaWrap = document.createElement('div');
+  mediaWrap.className = 'card-media-wrap';
+
+  const canvas = document.createElement('canvas');
+  canvas.className = 'card-media-canvas';
+  canvas.width = 640;
+  canvas.height = 360;
+  mediaWrap.appendChild(canvas);
+
+  if (hasNote || isSaved) {
+    const badge = document.createElement('span');
+    badge.className = 'card-badge-saved' + (hasNote ? ' is-note' : '');
+    badge.textContent = hasNote ? 'Con nota' : 'Guardada';
+    mediaWrap.appendChild(badge);
+  }
+
+  mediaWrap.addEventListener('click', () => openReaderDrawer(article));
+  gpuMedia.attachCardCanvas(canvas, article.id, article.title);
+
+  card.addEventListener('mouseenter', () => gpuMedia.setCardHover(canvas, true));
+  card.addEventListener('mouseleave', () => gpuMedia.setCardHover(canvas, false));
+
+  // 2. Título de la noticia
+  const titleWrap = document.createElement('div');
+  titleWrap.className = 'card-title-wrap';
+  const h2 = document.createElement('h2');
+  h2.className = 'card-title';
+  h2.textContent = article.title;
+  h2.addEventListener('click', () => openReaderDrawer(article));
+  titleWrap.appendChild(h2);
+
+  // 3. Origen, Fecha y Hora enlazado al original
+  const metaRow = document.createElement('div');
+  metaRow.className = 'card-meta';
+  const formattedDate = formatPubDate(article.published_ts || article.pub_date);
+  const originLabel =
+    article.author && article.feed_type === 'keyword_google'
+      ? `${article.feed_title} · ${article.author}`
+      : article.feed_title;
+
+  metaRow.innerHTML = `
+    <span class="card-origin" title="${escapeHtml(originLabel)}">${escapeHtml(originLabel)}</span>
+    <span aria-hidden="true">·</span>
+    <a
+      href="${escapeHtml(article.link)}"
+      target="_blank"
+      rel="noopener noreferrer"
+      class="card-original-link"
+      title="Abrir noticia original en pestaña nueva"
+    >${escapeHtml(formattedDate)} ↗</a>
+  `;
+
+  const origLinkEl = metaRow.querySelector('.card-original-link');
+  if (origLinkEl) {
+    origLinkEl.addEventListener('click', () => {
+      markArticleReadOptimistic(article, 'open');
+    });
+  }
+
+  // 4. Pequeño extracto del contenido debajo
+  const bodyWrap = document.createElement('div');
+  bodyWrap.className = 'card-body';
+
+  const pExcerpt = document.createElement('p');
+  pExcerpt.className = 'card-excerpt';
+  pExcerpt.textContent =
+    article.excerpt ||
+    'Sin resumen adicional en el feed. Pulsa para abrir el lector o visitar el enlace original.';
+  bodyWrap.appendChild(pExcerpt);
+
+  if (hasNote) {
+    const noteDiv = document.createElement('div');
+    noteDiv.className = 'card-note-preview';
+    noteDiv.textContent = `Nota: ${article.note}`;
+    bodyWrap.appendChild(noteDiv);
+  }
+
+  // 5. Pie de acciones
+  const footer = document.createElement('footer');
+  footer.className = 'card-footer';
+
+  const btnRead = document.createElement('button');
+  btnRead.type = 'button';
+  btnRead.className = 'card-action-btn btn-card-read';
+  if (isSaved || hasNote) {
+    btnRead.textContent = 'Protegida (Guardada)';
+    btnRead.title =
+      'Esta noticia está guardada o tiene nota, por lo que no se elimina al marcar como leída.';
+  } else if (isRead) {
+    btnRead.textContent = '✓ Leída · Ocultar';
+    btnRead.title = 'Ya marcada como leída y descontada. Pulsa para retirarla de la vista';
+  } else {
+    btnRead.textContent = '✓ Leída (Eliminar)';
+    btnRead.title = 'Marcar como leída y eliminar inmediatamente de la lista';
+  }
+  btnRead.addEventListener('click', () => removeSingleCardRead(article));
+
+  const rightActions = document.createElement('div');
+  rightActions.className = 'card-action-Group';
+
+  const btnSave = document.createElement('button');
+  btnSave.type = 'button';
+  btnSave.className = 'card-action-btn' + (isSaved ? ' is-active' : '');
+  btnSave.textContent = isSaved ? '★ Guardada' : '☆ Guardar';
+  btnSave.title = 'Guardar noticia para evitar su eliminación al leer';
+  btnSave.addEventListener('click', () => toggleSaveArticle(article));
+
+  const btnNote = document.createElement('button');
+  btnNote.type = 'button';
+  btnNote.className = 'card-action-btn' + (hasNote ? ' is-active' : '');
+  btnNote.textContent = hasNote ? '✎ Nota' : '+ Nota';
+  btnNote.title = 'Añadir o editar nota en esta noticia';
+  btnNote.addEventListener('click', () => {
+    openReaderDrawer(article);
+    setTimeout(() => elReaderNoteInput.focus(), 120);
+  });
+
+  rightActions.appendChild(btnSave);
+  rightActions.appendChild(btnNote);
+
+  footer.appendChild(btnRead);
+  footer.appendChild(rightActions);
+
+  card.appendChild(mediaWrap);
+  card.appendChild(titleWrap);
+  card.appendChild(metaRow);
+  card.appendChild(bodyWrap);
+  card.appendChild(footer);
+
+  return card;
+}
+
+function appendArticlesToGrid(articlesList) {
+  if (!articlesList || articlesList.length === 0) return;
+  elEmptyState.hidden = true;
+  const fragment = document.createDocumentFragment();
+  for (const article of articlesList) {
+    fragment.appendChild(createArticleCardElement(article));
+  }
+  elCardsGrid.appendChild(fragment);
+  updateStreamEndBox();
+}
+
 function renderCardsGrid() {
   if (state.articles.length === 0) {
     elCardsGrid.replaceChildren();
     elEmptyState.hidden = false;
+    updateStreamEndBox();
     return;
   }
 
@@ -346,137 +823,83 @@ function renderCardsGrid() {
   const fragment = document.createDocumentFragment();
 
   for (const article of state.articles) {
-    const isSaved = article.is_saved === 1;
-    const hasNote = Boolean(article.note && article.note.trim());
-
-    const card = document.createElement('article');
-    card.className = 'news-card' + (hasNote ? ' has-note' : '');
-    card.dataset.id = article.id;
-
-    // 1. Cabecera de Imagen 16:9 procesada con WebGPU/WGSL
-    const mediaWrap = document.createElement('div');
-    mediaWrap.className = 'card-media-wrap';
-
-    const canvas = document.createElement('canvas');
-    canvas.className = 'card-media-canvas';
-    canvas.width = 640;
-    canvas.height = 360;
-    mediaWrap.appendChild(canvas);
-
-    if (hasNote || isSaved) {
-      const badge = document.createElement('span');
-      badge.className = 'card-badge-saved' + (hasNote ? ' is-note' : '');
-      badge.textContent = hasNote ? 'Con nota' : 'Guardada';
-      mediaWrap.appendChild(badge);
-    }
-
-    mediaWrap.addEventListener('click', () => openReaderDrawer(article));
-    gpuMedia.attachCardCanvas(canvas, article.id, article.title);
-
-    card.addEventListener('mouseenter', () => gpuMedia.setCardHover(canvas, true));
-    card.addEventListener('mouseleave', () => gpuMedia.setCardHover(canvas, false));
-
-    // 2. Título de la noticia
-    const titleWrap = document.createElement('div');
-    titleWrap.className = 'card-title-wrap';
-    const h2 = document.createElement('h2');
-    h2.className = 'card-title';
-    h2.textContent = article.title;
-    h2.addEventListener('click', () => openReaderDrawer(article));
-    titleWrap.appendChild(h2);
-
-    // 3. Origen, Fecha y Hora enlazado al original
-    const metaRow = document.createElement('div');
-    metaRow.className = 'card-meta';
-    const formattedDate = formatPubDate(article.published_ts || article.pub_date);
-    const originLabel =
-      article.author && article.feed_type === 'keyword_google'
-        ? `${article.feed_title} · ${article.author}`
-        : article.feed_title;
-
-    metaRow.innerHTML = `
-      <span class="card-origin" title="${escapeHtml(originLabel)}">${escapeHtml(originLabel)}</span>
-      <span aria-hidden="true">·</span>
-      <a
-        href="${escapeHtml(article.link)}"
-        target="_blank"
-        rel="noopener noreferrer"
-        class="card-original-link"
-        title="Abrir noticia original en pestaña nueva"
-      >${escapeHtml(formattedDate)} ↗</a>
-    `;
-
-    // 4. Pequeño extracto del contenido debajo
-    const bodyWrap = document.createElement('div');
-    bodyWrap.className = 'card-body';
-
-    const pExcerpt = document.createElement('p');
-    pExcerpt.className = 'card-excerpt';
-    pExcerpt.textContent =
-      article.excerpt ||
-      'Sin resumen adicional en el feed. Pulsa para abrir el lector o visitar el enlace original.';
-    bodyWrap.appendChild(pExcerpt);
-
-    if (hasNote) {
-      const noteDiv = document.createElement('div');
-      noteDiv.className = 'card-note-preview';
-      noteDiv.textContent = `Nota: ${article.note}`;
-      bodyWrap.appendChild(noteDiv);
-    }
-
-    // 5. Pie de acciones
-    const footer = document.createElement('footer');
-    footer.className = 'card-footer';
-
-    const btnRead = document.createElement('button');
-    btnRead.type = 'button';
-    btnRead.className = 'card-action-btn';
-    if (isSaved || hasNote) {
-      btnRead.textContent = 'Protegida (Guardada)';
-      btnRead.title =
-        'Esta noticia está guardada o tiene nota, por lo que no se elimina al marcar como leída.';
-    } else {
-      btnRead.textContent = '✓ Leída (Eliminar)';
-      btnRead.title = 'Marcar como leída y eliminar inmediatamente de la lista';
-    }
-    btnRead.addEventListener('click', () => markReadAndDelete([article.id]));
-
-    const rightActions = document.createElement('div');
-    rightActions.className = 'card-action-Group';
-
-    const btnSave = document.createElement('button');
-    btnSave.type = 'button';
-    btnSave.className = 'card-action-btn' + (isSaved ? ' is-active' : '');
-    btnSave.textContent = isSaved ? '★ Guardada' : '☆ Guardar';
-    btnSave.title = 'Guardar noticia para evitar su eliminación al leer';
-    btnSave.addEventListener('click', () => toggleSaveArticle(article));
-
-    const btnNote = document.createElement('button');
-    btnNote.type = 'button';
-    btnNote.className = 'card-action-btn' + (hasNote ? ' is-active' : '');
-    btnNote.textContent = hasNote ? '✎ Nota' : '+ Nota';
-    btnNote.title = 'Añadir o editar nota en esta noticia';
-    btnNote.addEventListener('click', () => {
-      openReaderDrawer(article);
-      setTimeout(() => elReaderNoteInput.focus(), 120);
-    });
-
-    rightActions.appendChild(btnSave);
-    rightActions.appendChild(btnNote);
-
-    footer.appendChild(btnRead);
-    footer.appendChild(rightActions);
-
-    card.appendChild(mediaWrap);
-    card.appendChild(titleWrap);
-    card.appendChild(metaRow);
-    card.appendChild(bodyWrap);
-    card.appendChild(footer);
-
-    fragment.appendChild(card);
+    fragment.appendChild(createArticleCardElement(article));
   }
 
   elCardsGrid.replaceChildren(fragment);
+  updateStreamEndBox();
+}
+
+// ============================================================================
+// Detección de Lectura por Scroll y Carga Infinita
+// ============================================================================
+
+function markVisibleCardsAsSeen() {
+  if (!elStreamContainer || state.articles.length === 0) return;
+  const containerRect = elStreamContainer.getBoundingClientRect();
+  const cards = elCardsGrid.querySelectorAll('.news-card');
+
+  for (const cardEl of cards) {
+    const id = Number(cardEl.dataset.id);
+    if (!id || seenCardIds.has(id)) continue;
+    const rect = cardEl.getBoundingClientRect();
+    // Si la tarjeta está dentro del área visible del contenedor de lectura
+    if (rect.top < containerRect.bottom - 35 && rect.bottom > containerRect.top + 35) {
+      seenCardIds.add(id);
+    }
+  }
+}
+
+let scrollRafPending = false;
+function handleStreamScroll() {
+  if (scrollRafPending) return;
+  scrollRafPending = true;
+  requestAnimationFrame(() => {
+    scrollRafPending = false;
+    processStreamScrollPosition();
+  });
+}
+
+function processStreamScrollPosition() {
+  if (!elStreamContainer || state.articles.length === 0) return;
+
+  markVisibleCardsAsSeen();
+
+  const containerRect = elStreamContainer.getBoundingClientRect();
+  const scrollBottomRemaining =
+    elStreamContainer.scrollHeight - elStreamContainer.scrollTop - elStreamContainer.clientHeight;
+
+  const canAutoMark =
+    state.autoReadOnScroll && state.filter !== 'saved' && state.filter !== 'notes';
+
+  if (canAutoMark) {
+    const cards = elCardsGrid.querySelectorAll('.news-card');
+    const reachedVeryBottomOfFeed =
+      !hasMoreUnreadToLoad() && !state.isLoadingMore && scrollBottomRemaining <= 95;
+
+    for (const cardEl of cards) {
+      const id = Number(cardEl.dataset.id);
+      if (!id || readInSessionIds.has(id) || !seenCardIds.has(id)) continue;
+
+      const rect = cardEl.getBoundingClientRect();
+      // 1. La tarjeta ya ha sido leída y su borde inferior ha subido por encima de la cabecera del flujo
+      const passedTopEdge = rect.bottom <= containerRect.top + 64;
+      // 2. Hemos llegado al final absoluto del feed y la tarjeta está visible en el tramo final
+      const readAtFeedEnd = reachedVeryBottomOfFeed && rect.top < containerRect.bottom - 30;
+
+      if (passedTopEdge || readAtFeedEnd) {
+        const article = state.articles.find((a) => a.id === id);
+        if (article) {
+          markArticleReadOptimistic(article, 'scroll');
+        }
+      }
+    }
+  }
+
+  // Scroll infinito: cuando quedan menos de 850px para el fondo y hay más artículos en la BD, cargar el siguiente lote
+  if (scrollBottomRemaining < 850 && !state.isLoadingMore && hasMoreUnreadToLoad()) {
+    loadMoreArticles();
+  }
 }
 
 // ============================================================================
@@ -624,12 +1047,56 @@ function renderFeedManagerList() {
 // Acciones de Noticias y Lector Lateral
 // ============================================================================
 
-async function markReadAndDelete(articleIds) {
-  if (!articleIds || articleIds.length === 0) return;
+async function removeSingleCardRead(article) {
+  if (!article) return;
+  const isProtected = article.is_saved === 1 || Boolean(article.note && article.note.trim());
+  if (isProtected) return;
+
+  if (!readInSessionIds.has(article.id)) {
+    markArticleReadOptimistic(article, 'manual');
+  }
+
+  // Retirar la tarjeta inmediatamente del DOM sin reiniciar el scroll
+  const cardEl = elCardsGrid.querySelector(`.news-card[data-id="${article.id}"]`);
+  if (cardEl) cardEl.remove();
+  state.articles = state.articles.filter((a) => a.id !== article.id);
+  readInSessionIds.delete(article.id);
+
+  if (state.activeArticle && state.activeArticle.id === article.id) {
+    closeReaderDrawer();
+  }
+
+  await flushPendingReadArticles('manual');
+  renderTopbar();
+  updateStreamEndBox();
+
+  if (state.articles.length === 0) {
+    if (hasMoreUnreadToLoad()) {
+      await loadMoreArticles();
+    } else {
+      elEmptyState.hidden = false;
+    }
+  }
+}
+
+async function markReadAndDelete(articleIds, { markAllInView = false } = {}) {
+  await flushPendingReadArticles('manual');
+
+  const payload = markAllInView
+    ? {
+        markAllInView: true,
+        feedId: state.feedId,
+        categoryId: state.categoryId,
+        filter: state.filter,
+        search: state.search,
+        source: 'manual'
+      }
+    : { articleIds, source: 'manual' };
+
   const res = await fetch('/api/articles/mark-read', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ articleIds })
+    body: JSON.stringify(payload)
   });
   if (!res.ok) return;
   const data = await res.json();
@@ -637,10 +1104,13 @@ async function markReadAndDelete(articleIds) {
   if (state.activeArticle && data.deletedIds.includes(state.activeArticle.id)) {
     closeReaderDrawer();
   }
-  await fetchState();
+  await fetchState({ resetScroll: true });
 }
 
 async function toggleSaveArticle(article, customNote = undefined) {
+  // Asegurar que si estaba en la cola de lectura pendiente se envíe antes de restaurar/guardar
+  await flushPendingReadArticles('scroll');
+
   const payload = {
     isSaved: customNote !== undefined ? true : !(article.is_saved === 1)
   };
@@ -655,11 +1125,30 @@ async function toggleSaveArticle(article, customNote = undefined) {
   });
   if (!res.ok) return;
   const data = await res.json();
+
+  // Actualizar en sitio sin destruir la posición de scroll
+  Object.assign(article, data.article);
+  if (article.is_saved === 1 || (article.note && article.note.trim())) {
+    readInSessionIds.delete(article.id);
+    article._isRead = false;
+  }
+
+  if (data.sidebar) {
+    state.sidebar = data.sidebar;
+    updateSidebarCountsInPlace();
+  }
+
+  const oldCard = elCardsGrid.querySelector(`.news-card[data-id="${article.id}"]`);
+  if (oldCard) {
+    oldCard.replaceWith(createArticleCardElement(article));
+  }
+
   if (state.activeArticle && state.activeArticle.id === article.id) {
     state.activeArticle = { ...state.activeArticle, ...data.article };
     syncReaderDrawerButtons();
   }
-  await fetchState();
+
+  renderTopbar();
 }
 
 function openReaderDrawer(article) {
@@ -674,6 +1163,11 @@ function openReaderDrawer(article) {
     elReaderContent.innerHTML = sanitizeFeedHtml(article.content_html);
   } else {
     elReaderContent.innerHTML = `<p>${escapeHtml(article.excerpt || '')}</p>`;
+  }
+
+  // Al abrir la noticia para leerla, marcarla automáticamente como leída y actualizar el contador lateral
+  if (state.filter !== 'saved' && state.filter !== 'notes') {
+    markArticleReadOptimistic(article, 'open');
   }
 
   syncReaderDrawerButtons();
@@ -691,7 +1185,7 @@ function syncReaderDrawerButtons() {
   elReaderBtnReadDelete.textContent =
     isSaved || hasNote
       ? 'Noticia protegida (Guardada)'
-      : '✓ Marcar leída y eliminar';
+      : '✓ Retirar de la vista y cerrar';
 }
 
 function closeReaderDrawer() {
@@ -720,6 +1214,44 @@ function bindEvents() {
   document.getElementById('btn-toggle-sidebar').addEventListener('click', () => {
     elAppShell.classList.toggle('sidebar-collapsed');
   });
+
+  // Seguimiento de scroll en el flujo de noticias para marcar como leídas en vivo + scroll infinito
+  elStreamContainer.addEventListener('scroll', handleStreamScroll, { passive: true });
+
+  // Si el usuario cierra o cambia de pestaña, volcar inmediatamente cualquier lectura pendiente
+  window.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && pendingReadIds.size > 0) {
+      flushPendingReadArticles('scroll');
+    }
+  });
+  window.addEventListener('pagehide', () => {
+    if (pendingReadIds.size > 0) {
+      flushPendingReadArticles('scroll');
+    }
+  });
+
+  if (elBtnToggleAutoRead) {
+    elBtnToggleAutoRead.addEventListener('click', () => {
+      state.autoReadOnScroll = !state.autoReadOnScroll;
+      localStorage.setItem('feedly_auto_read_scroll', state.autoReadOnScroll ? 'true' : 'false');
+      syncAutoReadToggleUi();
+      if (state.autoReadOnScroll) {
+        processStreamScrollPosition();
+      }
+    });
+  }
+
+  if (elBtnMarkRemainingRead) {
+    elBtnMarkRemainingRead.addEventListener('click', async () => {
+      if (hasMoreUnreadToLoad()) {
+        await loadMoreArticles();
+      } else if (getUnreadInDomCount() > 0) {
+        await markReadAndDelete([], { markAllInView: true });
+      } else {
+        await fetchState({ resetScroll: true });
+      }
+    });
+  }
 
   document.querySelectorAll('.nav-section .nav-item').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -772,16 +1304,13 @@ function bindEvents() {
   });
 
   elBtnMarkAllRead.addEventListener('click', async () => {
-    const deletableIds = state.articles
-      .filter((a) => a.is_saved !== 1 && (!a.note || !a.note.trim()))
-      .map((a) => a.id);
-    if (deletableIds.length === 0) return;
-    await markReadAndDelete(deletableIds);
+    await markReadAndDelete([], { markAllInView: true });
   });
 
   elBtnUndo.addEventListener('click', async () => {
+    await flushPendingReadArticles('scroll');
     const res = await fetch('/api/articles/undo-dismiss', { method: 'POST' });
-    if (res.ok) await fetchState();
+    if (res.ok) await fetchState({ resetScroll: true });
   });
 
   elBtnSync.addEventListener('click', () => triggerSync());
@@ -790,7 +1319,7 @@ function bindEvents() {
   elReaderBtnClose.addEventListener('click', closeReaderDrawer);
   elReaderBackdrop.addEventListener('click', closeReaderDrawer);
   elReaderBtnReadDelete.addEventListener('click', () => {
-    if (state.activeArticle) markReadAndDelete([state.activeArticle.id]);
+    if (state.activeArticle) removeSingleCardRead(state.activeArticle);
   });
   elReaderBtnSave.addEventListener('click', () => {
     if (state.activeArticle) toggleSaveArticle(state.activeArticle);

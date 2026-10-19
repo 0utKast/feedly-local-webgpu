@@ -70,6 +70,8 @@ db.exec(`
     feed_id INTEGER NOT NULL,
     guid TEXT NOT NULL,
     dismissed_at INTEGER NOT NULL,
+    norm_title TEXT DEFAULT '',
+    norm_link TEXT DEFAULT '',
     PRIMARY KEY (feed_id, guid)
   );
 
@@ -85,6 +87,46 @@ db.exec(`
 try {
   db.exec(`ALTER TABLE feeds ADD COLUMN feed_type TEXT DEFAULT 'rss';`);
 } catch {}
+try {
+  db.exec(`ALTER TABLE dismissed_guids ADD COLUMN norm_title TEXT DEFAULT '';`);
+} catch {}
+try {
+  db.exec(`ALTER TABLE dismissed_guids ADD COLUMN norm_link TEXT DEFAULT '';`);
+} catch {}
+
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_dismissed_guid ON dismissed_guids(guid);
+  CREATE INDEX IF NOT EXISTS idx_dismissed_title ON dismissed_guids(norm_title);
+  CREATE INDEX IF NOT EXISTS idx_dismissed_link ON dismissed_guids(norm_link);
+`);
+
+function normalizeArticleTitleKey(title) {
+  if (!title) return '';
+  return String(title)
+    .toLowerCase()
+    .replace(/\s+[-–—|]\s+[^-–—|]{2,45}$/, '')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normalizeArticleLinkKey(link) {
+  if (!link) return '';
+  const raw = String(link).trim();
+  if (!raw || raw.includes('news.google.com/rss/articles/')) return '';
+  try {
+    const u = new URL(raw);
+    u.hash = '';
+    for (const k of [...u.searchParams.keys()]) {
+      if (/^(utm_|fbclid|gclid|mc_|ref|source|rss)/i.test(k)) {
+        u.searchParams.delete(k);
+      }
+    }
+    return (u.origin + u.pathname.replace(/\/+$/, '') + u.search).toLowerCase();
+  } catch {
+    return raw.toLowerCase();
+  }
+}
 
 // Corregir timestamps artificiales de feeds sin fecha (<pubDate> ausente tenía milisegundos != 0 por Date.now())
 // para que no acaparen la portada por delante de las noticias con fecha real
@@ -107,8 +149,85 @@ db.exec(`
     );
 `);
 
+// Limpiar al arranque artículos que ya estén en dismissed_guids o duplicados exactos entre distintos feeds
+function purgeDuplicatesAndDismissedOnStartup() {
+  const allDismissed = db.prepare('SELECT feed_id, guid, norm_title, norm_link FROM dismissed_guids').all();
+  const dismissedGuidsSet = new Set();
+  const dismissedTitlesSet = new Set();
+  const dismissedLinksSet = new Set();
+
+  const updateDismissedNorm = db.prepare(
+    'UPDATE dismissed_guids SET norm_link = ? WHERE feed_id = ? AND guid = ?'
+  );
+
+  for (const d of allDismissed) {
+    if (d.guid) dismissedGuidsSet.add(d.guid);
+    if (d.norm_title && d.norm_title.length >= 18) dismissedTitlesSet.add(d.norm_title);
+    let nl = d.norm_link || '';
+    if (!nl && d.guid && d.guid.startsWith('http')) {
+      nl = normalizeArticleLinkKey(d.guid);
+      if (nl) updateDismissedNorm.run(nl, d.feed_id, d.guid);
+    }
+    if (nl && nl.length >= 12) dismissedLinksSet.add(nl);
+  }
+
+  const allArticles = db
+    .prepare("SELECT id, feed_id, guid, title, link, image_url, is_saved, note FROM articles ORDER BY is_saved DESC, (image_url != '') DESC, published_ts DESC, id ASC")
+    .all();
+
+  const seenTitleKeys = new Set();
+  const seenLinkKeys = new Set();
+  const seenGuids = new Set();
+  const delArt = db.prepare('DELETE FROM articles WHERE id = ?');
+  const insDismissed = db.prepare(
+    'INSERT OR IGNORE INTO dismissed_guids (feed_id, guid, dismissed_at, norm_title, norm_link) VALUES (?, ?, ?, ?, ?)'
+  );
+  const now = Date.now();
+
+  for (const a of allArticles) {
+    const isProtected = a.is_saved === 1 || (a.note && a.note.trim() !== '');
+    const nt = normalizeArticleTitleKey(a.title);
+    const nl = normalizeArticleLinkKey(a.link);
+
+    if (!isProtected) {
+      const alreadyDismissed =
+        dismissedGuidsSet.has(a.guid) ||
+        (nl.length >= 12 && dismissedLinksSet.has(nl)) ||
+        (nt.length >= 18 && dismissedTitlesSet.has(nt));
+
+      const isDuplicateUnread =
+        seenGuids.has(a.guid) ||
+        (nl.length >= 12 && seenLinkKeys.has(nl)) ||
+        (nt.length >= 18 && seenTitleKeys.has(nt));
+
+      if (alreadyDismissed || isDuplicateUnread) {
+        insDismissed.run(a.feed_id, a.guid, now, nt, nl);
+        delArt.run(a.id);
+        continue;
+      }
+    }
+
+    seenGuids.add(a.guid);
+    if (nl.length >= 12) seenLinkKeys.add(nl);
+    if (nt.length >= 18) seenTitleKeys.add(nt);
+  }
+}
+
+purgeDuplicatesAndDismissedOnStartup();
+
 const recentDismissedBatches = [];
-const MAX_UNDO_BATCHES = 15;
+const MAX_UNDO_BATCHES = 20;
+let lastScrollDismissTimestamp = 0;
+
+// Caché en memoria de artículos leídos recientemente para permitir guardarlos o extraer texto aunque ya se hayan borrado de articles
+const recentlyReadById = new Map();
+function rememberRecentlyReadArticle(articleObj) {
+  recentlyReadById.set(Number(articleObj.id), articleObj);
+  if (recentlyReadById.size > 1500) {
+    const oldestKey = recentlyReadById.keys().next().value;
+    recentlyReadById.delete(oldestKey);
+  }
+}
 
 const syncStatus = {
   isSyncing: false,
@@ -639,14 +758,26 @@ function parseFeedXml(xmlText, feedUrl) {
       'a10:updated'
     ]);
 
-    // Si el feed no tiene etiqueta de fecha (ej. WikiCFP), situarlo 36h atrás escalonado
-    // para que no adelante a las noticias de última hora con fecha real
-    let publishedTs = Math.floor((Date.now() - 36 * 3600 * 1000 - itemIndex * 60000) / 1000) * 1000;
+    // Si el feed no tiene etiqueta de fecha (ej. WikiCFP), asignarle un timestamp determinista
+    // basado en su guid/título (anclado varios días atrás) para que no cambie ni se adelante al pulsar Recargar
+    let publishedTs = 0;
     if (rawDate) {
       const parsed = Date.parse(rawDate.trim());
       if (!Number.isNaN(parsed)) {
         publishedTs = parsed;
       }
+    }
+    if (!publishedTs) {
+      let hash = 0;
+      const seedStr = `${guid}|${title}`;
+      for (let i = 0; i < seedStr.length; i++) {
+        hash = (hash * 31 + seedStr.charCodeAt(i)) >>> 0;
+      }
+      // Timestamp estable escalonado en una ventana fija de 4 a 9 días atrás (redondeado al segundo)
+      const anchorDayMs = Math.floor(Date.now() / (86400 * 1000)) * (86400 * 1000);
+      publishedTs =
+        anchorDayMs - 4 * 86400 * 1000 - (hash % (5 * 86400 * 1000)) - itemIndex * 60000;
+      publishedTs = Math.floor(publishedTs / 1000) * 1000;
     }
     itemIndex++;
 
@@ -829,7 +960,7 @@ async function resolveAndSaveArticleImage(articleId) {
 
   const task = (async () => {
     try {
-      const row = db
+      let row = db
         .prepare(`
           SELECT a.id, a.title, a.link, a.image_url, a.author, f.title AS feed_title
           FROM articles a
@@ -837,6 +968,10 @@ async function resolveAndSaveArticleImage(articleId) {
           WHERE a.id = ?
         `)
         .get(id);
+
+      if (!row && recentlyReadById.has(id)) {
+        row = recentlyReadById.get(id);
+      }
 
       if (!row) return '';
 
@@ -860,6 +995,9 @@ async function resolveAndSaveArticleImage(articleId) {
 
       if (discovered) {
         db.prepare('UPDATE articles SET image_url = ? WHERE id = ?').run(discovered, row.id);
+        if (recentlyReadById.has(id)) {
+          recentlyReadById.get(id).image_url = discovered;
+        }
         return discovered;
       }
 
@@ -993,12 +1131,24 @@ async function syncSingleFeed(feedRow, preloadedXml = null) {
 
     const parsed = parseFeedXml(xmlText, feedRow.feed_url);
 
-    const checkDismissed = db.prepare(
-      'SELECT 1 FROM dismissed_guids WHERE feed_id = ? AND guid = ?'
+    // Comprobar si la noticia ya fue leída/descartada (por guid en cualquier feed, o por enlace/título normalizado)
+    const checkDismissedByGuid = db.prepare(
+      'SELECT 1 FROM dismissed_guids WHERE guid = ? LIMIT 1'
     );
-    const checkExisting = db.prepare(
-      'SELECT id, image_url FROM articles WHERE feed_id = ? AND guid = ?'
+    const checkDismissedByLink = db.prepare(
+      "SELECT 1 FROM dismissed_guids WHERE norm_link = ? AND norm_link != '' LIMIT 1"
     );
+    const checkDismissedByTitle = db.prepare(
+      "SELECT 1 FROM dismissed_guids WHERE norm_title = ? AND norm_title != '' LIMIT 1"
+    );
+
+    const checkExistingGuid = db.prepare(
+      'SELECT id FROM articles WHERE guid = ? LIMIT 1'
+    );
+    const checkExistingTitle = db.prepare(
+      'SELECT id, title, link FROM articles WHERE lower(substr(title, 1, 28)) = lower(substr(?, 1, 28)) LIMIT 10'
+    );
+
     const insertArticle = db.prepare(`
       INSERT INTO articles (
         feed_id, guid, title, link, pub_date, published_ts,
@@ -1015,10 +1165,28 @@ async function syncSingleFeed(feedRow, preloadedXml = null) {
     const itemsToProcess = parsed.items.slice(0, 20);
 
     for (const item of itemsToProcess) {
-      if (checkDismissed.get(feedRow.id, item.guid)) continue;
+      const normTitle = normalizeArticleTitleKey(item.title);
+      const normLink = normalizeArticleLinkKey(item.link);
 
-      const existing = checkExisting.get(feedRow.id, item.guid);
-      if (existing) continue;
+      if (checkDismissedByGuid.get(item.guid)) continue;
+      if (normLink.length >= 12 && checkDismissedByLink.get(normLink)) continue;
+      if (normTitle.length >= 18 && checkDismissedByTitle.get(normTitle)) continue;
+
+      if (checkExistingGuid.get(item.guid)) continue;
+
+      // Evitar insertar la misma noticia si ya existe en otro feed por título o enlace normalizado
+      let duplicateExisting = false;
+      const similarCandidates = checkExistingTitle.all(item.title);
+      for (const cand of similarCandidates) {
+        if (
+          (normTitle.length >= 18 && normalizeArticleTitleKey(cand.title) === normTitle) ||
+          (normLink.length >= 12 && normalizeArticleLinkKey(cand.link) === normLink)
+        ) {
+          duplicateExisting = true;
+          break;
+        }
+      }
+      if (duplicateExisting) continue;
 
       // Si la imagen del RSS ya está repetida en otro artículo (ej. un logo fijo del blog),
       // dejarla vacía para que el buscador contextual le asigne una foto única
@@ -1110,8 +1278,11 @@ function getSidebarState() {
     .prepare(`
       SELECT
         COUNT(*) AS all_count,
-        SUM(CASE WHEN is_saved = 1 OR (note IS NOT NULL AND note != '') THEN 1 ELSE 0 END) AS saved_count
-      FROM articles
+        SUM(CASE WHEN a.is_saved = 1 OR (a.note IS NOT NULL AND a.note != '') THEN 1 ELSE 0 END) AS saved_count,
+        SUM(CASE WHEN a.note IS NOT NULL AND a.note != '' THEN 1 ELSE 0 END) AS notes_count,
+        SUM(CASE WHEN f.feed_type LIKE 'keyword_%' THEN 1 ELSE 0 END) AS keywords_count
+      FROM articles a
+      JOIN feeds f ON f.id = a.feed_id
     `)
     .get();
 
@@ -1123,6 +1294,8 @@ function getSidebarState() {
     totals: {
       all: totals?.all_count || 0,
       saved: totals?.saved_count || 0,
+      notes: totals?.notes_count || 0,
+      keywords: totals?.keywords_count || 0,
       feedsTotal: feeds.length,
       feedsWithError: errorFeedsCount
     },
@@ -1131,9 +1304,9 @@ function getSidebarState() {
   };
 }
 
-function queryArticles({ feedId, categoryId, filter, search, limit = 150 }) {
+function buildArticlesFilterQuery({ feedId, categoryId, filter, search, excludeIds = [] }) {
   const params = [];
-  let sql = '';
+  let fromAndWhere = '';
 
   if (search && search.trim()) {
     const tokens = search
@@ -1145,13 +1318,7 @@ function queryArticles({ feedId, categoryId, filter, search, limit = 150 }) {
       .join(' AND ');
 
     if (tokens) {
-      sql = `
-        SELECT
-          a.*,
-          f.title AS feed_title,
-          f.site_url AS feed_site_url,
-          f.feed_type AS feed_type,
-          c.name AS category_name
+      fromAndWhere = `
         FROM articles_fts fts
         JOIN articles a ON a.id = fts.article_id
         JOIN feeds f ON f.id = a.feed_id
@@ -1162,14 +1329,8 @@ function queryArticles({ feedId, categoryId, filter, search, limit = 150 }) {
     }
   }
 
-  if (!sql) {
-    sql = `
-      SELECT
-        a.*,
-        f.title AS feed_title,
-        f.site_url AS feed_site_url,
-        f.feed_type AS feed_type,
-        c.name AS category_name
+  if (!fromAndWhere) {
+    fromAndWhere = `
       FROM articles a
       JOIN feeds f ON f.id = a.feed_id
       JOIN categories c ON c.id = f.category_id
@@ -1178,72 +1339,174 @@ function queryArticles({ feedId, categoryId, filter, search, limit = 150 }) {
   }
 
   if (feedId) {
-    sql += ` AND a.feed_id = ?`;
+    fromAndWhere += ` AND a.feed_id = ?`;
     params.push(Number(feedId));
   }
   if (categoryId) {
-    sql += ` AND f.category_id = ?`;
+    fromAndWhere += ` AND f.category_id = ?`;
     params.push(Number(categoryId));
   }
   if (filter === 'saved') {
-    sql += ` AND (a.is_saved = 1 OR (a.note IS NOT NULL AND a.note != ''))`;
+    fromAndWhere += ` AND (a.is_saved = 1 OR (a.note IS NOT NULL AND a.note != ''))`;
   } else if (filter === 'notes') {
-    sql += ` AND (a.note IS NOT NULL AND a.note != '')`;
+    fromAndWhere += ` AND (a.note IS NOT NULL AND a.note != '')`;
   } else if (filter === 'keywords') {
-    sql += ` AND f.feed_type LIKE 'keyword_%'`;
+    fromAndWhere += ` AND f.feed_type LIKE 'keyword_%'`;
   }
 
-  sql += ` ORDER BY a.published_ts DESC LIMIT ?`;
-  params.push(Number(limit));
+  const validExclude = Array.isArray(excludeIds)
+    ? excludeIds.map(Number).filter((n) => Number.isInteger(n) && n > 0)
+    : [];
 
-  return db.prepare(sql).all(...params);
+  let excludeClause = '';
+  const excludeParams = [];
+  if (validExclude.length > 0) {
+    const capped = validExclude.slice(0, 900);
+    const placeholders = capped.map(() => '?').join(',');
+    excludeClause = ` AND a.id NOT IN (${placeholders})`;
+    excludeParams.push(...capped);
+  }
+
+  return { fromAndWhere, params, excludeClause, excludeParams };
 }
 
-function markArticlesReadAndDeleteImmediate(articleIds) {
+function queryArticlesWithTotal({ feedId, categoryId, filter, search, excludeIds = [], limit = 90 }) {
+  const { fromAndWhere, params, excludeClause, excludeParams } = buildArticlesFilterQuery({
+    feedId,
+    categoryId,
+    filter,
+    search,
+    excludeIds
+  });
+
+  const countRow = db
+    .prepare(`SELECT COUNT(*) AS total ${fromAndWhere}`)
+    .get(...params);
+  const totalMatching = countRow?.total || 0;
+
+  const selectSql = `
+    SELECT
+      a.*,
+      f.title AS feed_title,
+      f.site_url AS feed_site_url,
+      f.feed_type AS feed_type,
+      c.name AS category_name
+    ${fromAndWhere}
+    ${excludeClause}
+    ORDER BY a.published_ts DESC, a.id DESC
+    LIMIT ?
+  `;
+
+  const articles = db
+    .prepare(selectSql)
+    .all(...params, ...excludeParams, Number(limit));
+
+  return { articles, totalMatching };
+}
+
+function queryArticles(opts) {
+  return queryArticlesWithTotal(opts).articles;
+}
+
+function markArticlesReadAndDeleteImmediate(articleIds, options = {}) {
   if (!Array.isArray(articleIds) || articleIds.length === 0) {
-    return { deletedIds: [], preservedSavedIds: [] };
+    return { deletedIds: [], preservedSavedIds: [], canUndoCount: recentDismissedBatches.length };
   }
 
   const deletedIds = [];
+  const deletedIdSet = new Set();
   const preservedSavedIds = [];
   const backupArticles = [];
   const now = Date.now();
 
   const getArticle = db.prepare('SELECT * FROM articles WHERE id = ?');
   const getFeed = db.prepare('SELECT title FROM feeds WHERE id = ?');
+  const findDupByGuid = db.prepare(
+    'SELECT * FROM articles WHERE guid = ? AND id != ?'
+  );
+  const findDupCandidatesByTitle = db.prepare(
+    'SELECT * FROM articles WHERE lower(substr(title, 1, 25)) = lower(substr(?, 1, 25)) AND id != ?'
+  );
   const deleteArticle = db.prepare('DELETE FROM articles WHERE id = ?');
   const deleteFts = db.prepare('DELETE FROM articles_fts WHERE article_id = ?');
   const insertDismissed = db.prepare(`
-    INSERT OR REPLACE INTO dismissed_guids (feed_id, guid, dismissed_at)
-    VALUES (?, ?, ?)
+    INSERT OR REPLACE INTO dismissed_guids (feed_id, guid, dismissed_at, norm_title, norm_link)
+    VALUES (?, ?, ?, ?, ?)
   `);
 
-  for (const rawId of articleIds) {
-    const id = Number(rawId);
-    const row = getArticle.get(id);
-    if (!row) continue;
-
+  function dismissSingleRow(row) {
+    if (!row || deletedIdSet.has(row.id)) return;
     if (row.is_saved === 1 || (row.note && row.note.trim() !== '')) {
-      preservedSavedIds.push(id);
-      continue;
+      preservedSavedIds.push(row.id);
+      return;
     }
 
     const feedRow = getFeed.get(row.feed_id);
-    backupArticles.push({
+    const enriched = {
       ...row,
       feed_title: feedRow ? feedRow.title : ''
-    });
+    };
+    backupArticles.push(enriched);
+    rememberRecentlyReadArticle(enriched);
 
-    insertDismissed.run(row.feed_id, row.guid, now);
-    deleteArticle.run(id);
-    deleteFts.run(id);
-    deletedIds.push(id);
+    const normTitle = normalizeArticleTitleKey(row.title);
+    const normLink = normalizeArticleLinkKey(row.link);
+
+    insertDismissed.run(row.feed_id, row.guid, now, normTitle, normLink);
+    deleteArticle.run(row.id);
+    deleteFts.run(row.id);
+    deletedIdSet.add(row.id);
+    deletedIds.push(row.id);
+
+    // Si existen copias idénticas de esta misma noticia en otros feeds, marcarlas también como leídas
+    for (const dup of findDupByGuid.all(row.guid, row.id)) {
+      if (!deletedIdSet.has(dup.id) && dup.is_saved !== 1 && (!dup.note || !dup.note.trim())) {
+        dismissSingleRow(dup);
+      }
+    }
+    if (normTitle.length >= 18 || normLink.length >= 12) {
+      for (const cand of findDupCandidatesByTitle.all(row.title, row.id)) {
+        if (deletedIdSet.has(cand.id)) continue;
+        const candTitle = normalizeArticleTitleKey(cand.title);
+        const candLink = normalizeArticleLinkKey(cand.link);
+        if (
+          (normTitle.length >= 18 && candTitle === normTitle) ||
+          (normLink.length >= 12 && candLink === normLink)
+        ) {
+          dismissSingleRow(cand);
+        }
+      }
+    }
+  }
+
+  for (const rawId of articleIds) {
+    const id = Number(rawId);
+    if (!id || deletedIdSet.has(id)) continue;
+    const row = getArticle.get(id);
+    if (!row) continue;
+    dismissSingleRow(row);
   }
 
   if (backupArticles.length > 0) {
-    recentDismissedBatches.push(backupArticles);
-    if (recentDismissedBatches.length > MAX_UNDO_BATCHES) {
-      recentDismissedBatches.shift();
+    const isScrollSource = options.source === 'scroll' || options.source === 'open';
+    // Si viene del scroll automático y hace menos de 45s que añadimos al lote de scroll, agrupar en el mismo lote de Deshacer
+    if (
+      isScrollSource &&
+      recentDismissedBatches.length > 0 &&
+      now - lastScrollDismissTimestamp < 45000 &&
+      recentDismissedBatches[recentDismissedBatches.length - 1].length < 250
+    ) {
+      recentDismissedBatches[recentDismissedBatches.length - 1].push(...backupArticles);
+    } else {
+      recentDismissedBatches.push(backupArticles);
+      if (recentDismissedBatches.length > MAX_UNDO_BATCHES) {
+        recentDismissedBatches.shift();
+      }
+    }
+    if (isScrollSource) {
+      lastScrollDismissTimestamp = now;
+    } else {
+      lastScrollDismissTimestamp = 0;
     }
   }
 
@@ -1364,10 +1627,49 @@ const server = http.createServer(async (req, res) => {
       const categoryId = parsedUrl.searchParams.get('categoryId');
       const filter = parsedUrl.searchParams.get('filter') || 'all';
       const search = parsedUrl.searchParams.get('search') || '';
+      const limit = Number(parsedUrl.searchParams.get('limit')) || 90;
 
       const sidebar = getSidebarState();
-      const articles = queryArticles({ feedId, categoryId, filter, search });
-      return sendJson(res, 200, { sidebar, articles });
+      const { articles, totalMatching } = queryArticlesWithTotal({
+        feedId,
+        categoryId,
+        filter,
+        search,
+        limit
+      });
+      return sendJson(res, 200, {
+        sidebar,
+        articles,
+        totalMatching,
+        hasMore: totalMatching > articles.length
+      });
+    }
+
+    // 1b. Paginación / Scroll infinito de artículos sin recargar la vista
+    if (req.method === 'GET' && pathname === '/api/articles') {
+      const feedId = parsedUrl.searchParams.get('feedId');
+      const categoryId = parsedUrl.searchParams.get('categoryId');
+      const filter = parsedUrl.searchParams.get('filter') || 'all';
+      const search = parsedUrl.searchParams.get('search') || '';
+      const limit = Number(parsedUrl.searchParams.get('limit')) || 90;
+      const excludeRaw = parsedUrl.searchParams.get('excludeIds') || '';
+      const excludeIds = excludeRaw
+        ? excludeRaw.split(',').map(Number).filter(Boolean)
+        : [];
+
+      const { articles, totalMatching } = queryArticlesWithTotal({
+        feedId,
+        categoryId,
+        filter,
+        search,
+        excludeIds,
+        limit
+      });
+      return sendJson(res, 200, {
+        articles,
+        totalMatching,
+        sidebar: getSidebarState()
+      });
     }
 
     // 2. Endpoint Inteligente de Imagen por Artículo (/api/article-image/:id)
@@ -1386,7 +1688,7 @@ const server = http.createServer(async (req, res) => {
           return;
         } catch {
           // Si la URL original del medio falló (403/404), buscar fotografía contextual de respaldo
-          const row = db
+          let row = db
             .prepare(`
               SELECT a.id, a.title, f.title AS feed_title
               FROM articles a
@@ -1394,6 +1696,10 @@ const server = http.createServer(async (req, res) => {
               WHERE a.id = ?
             `)
             .get(articleId);
+
+          if (!row && recentlyReadById.has(articleId)) {
+            row = recentlyReadById.get(articleId);
+          }
 
           if (row) {
             const fallbackUrl = await findContextualNewsImage(row);
@@ -1583,8 +1889,22 @@ const server = http.createServer(async (req, res) => {
     // 9. Marcar noticias como leídas -> Eliminación inmediata excepto guardadas
     if (req.method === 'POST' && pathname === '/api/articles/mark-read') {
       const body = await readJsonBody(req);
-      const ids = Array.isArray(body.articleIds) ? body.articleIds : [];
-      const result = markArticlesReadAndDeleteImmediate(ids);
+      let ids = Array.isArray(body.articleIds) ? body.articleIds : [];
+
+      if (body.markAllInView) {
+        const { fromAndWhere, params } = buildArticlesFilterQuery({
+          feedId: body.feedId,
+          categoryId: body.categoryId,
+          filter: body.filter,
+          search: body.search
+        });
+        const allViewRows = db
+          .prepare(`SELECT a.id ${fromAndWhere}`)
+          .all(...params);
+        ids = allViewRows.map((r) => r.id);
+      }
+
+      const result = markArticlesReadAndDeleteImmediate(ids, { source: body.source || 'manual' });
       return sendJson(res, 200, {
         ok: true,
         ...result,
@@ -1610,11 +1930,11 @@ const server = http.createServer(async (req, res) => {
         VALUES (?, ?, ?, ?, ?)
       `);
       const removeDismissed = db.prepare(
-        'DELETE FROM dismissed_guids WHERE feed_id = ? AND guid = ?'
+        'DELETE FROM dismissed_guids WHERE guid = ?'
       );
 
       for (const item of batch) {
-        removeDismissed.run(item.feed_id, item.guid);
+        removeDismissed.run(item.guid);
         restoreArticle.run(
           item.id,
           item.feed_id,
@@ -1641,13 +1961,46 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // 11. Alternar Guardado o añadir/editar Nota
+    // 11. Alternar Guardado o añadir/editar Nota (incluso si acababa de marcarse como leída al abrir/hacer scroll)
     if (req.method === 'POST' && pathname.startsWith('/api/articles/') && pathname.endsWith('/save')) {
       const parts = pathname.split('/');
       const articleId = Number(parts[3]);
       const body = await readJsonBody(req);
 
-      const current = db.prepare('SELECT * FROM articles WHERE id = ?').get(articleId);
+      let current = db.prepare('SELECT * FROM articles WHERE id = ?').get(articleId);
+
+      // Si ya se había marcado como leída en la sesión actual, restaurarla automáticamente a articles
+      if (!current && recentlyReadById.has(articleId)) {
+        const cached = recentlyReadById.get(articleId);
+        db.prepare('DELETE FROM dismissed_guids WHERE guid = ?').run(cached.guid);
+        db.prepare(`
+          INSERT OR IGNORE INTO articles (
+            id, feed_id, guid, title, link, pub_date, published_ts,
+            author, excerpt, content_html, image_url, is_saved, note, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          cached.id,
+          cached.feed_id,
+          cached.guid,
+          cached.title,
+          cached.link,
+          cached.pub_date,
+          cached.published_ts,
+          cached.author,
+          cached.excerpt,
+          cached.content_html,
+          cached.image_url,
+          1,
+          cached.note || '',
+          cached.created_at
+        );
+        db.prepare(`
+          INSERT INTO articles_fts (article_id, title, excerpt, feed_title, note)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(cached.id, cached.title, cached.excerpt, cached.feed_title || '', cached.note || '');
+        current = db.prepare('SELECT * FROM articles WHERE id = ?').get(articleId);
+      }
+
       if (!current) return sendJson(res, 404, { error: 'Noticia no encontrada' });
 
       const newSaved =
@@ -1669,7 +2022,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && pathname.startsWith('/api/articles/') && pathname.endsWith('/fulltext')) {
       const parts = pathname.split('/');
       const articleId = Number(parts[3]);
-      const row = db.prepare('SELECT * FROM articles WHERE id = ?').get(articleId);
+      let row = db.prepare('SELECT * FROM articles WHERE id = ?').get(articleId);
+      if (!row && recentlyReadById.has(articleId)) {
+        row = recentlyReadById.get(articleId);
+      }
       if (!row) return sendJson(res, 404, { error: 'Noticia no encontrada' });
 
       const paragraphs = await extractReadableArticle(row.link);
