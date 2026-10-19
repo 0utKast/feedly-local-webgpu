@@ -1,0 +1,9 @@
+services:
+  feedly-local:
+    build: .
+    container_name: feedly-local-webgpu
+    ports:
+      - "3040:3040"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

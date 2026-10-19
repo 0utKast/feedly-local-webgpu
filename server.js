@@ -1691,10 +1691,9 @@ const server = http.createServer(async (req, res) => {
     const hostnameOnly = hostHeader.split(':')[0].toLowerCase();
     const userAgent = String(req.headers['user-agent'] || '');
 
-    // Si se abre el marcador compartido (http://192.168.1.225:3040) tanto en Mac como en Windows,
-    // redirigir automáticamente a localhost / 127.0.0.1 (a través del portproxy de Windows)
-    // para que Chrome trate la sesión como contexto seguro y active WebGPU · WGSL de serie
-    if (hostnameOnly !== 'localhost' && hostnameOnly !== '127.0.0.1') {
+    // Redirección automática opcional para marcador compartido en red local hacia loopback seguro (WebGPU)
+    const lanBookmarkHost = (process.env.LAN_BOOKMARK_HOST || '192.168.1.225').toLowerCase();
+    if (hostnameOnly === lanBookmarkHost) {
       if (/Macintosh|Mac OS X/i.test(userAgent)) {
         res.writeHead(302, { Location: `http://localhost:${PORT}${req.url || '/'}` });
         return res.end();
