@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Feedly Local — Lector de Feeds</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div id="app-shell" class="app-shell">
+    <!-- Panel izquierdo de opciones y suscripciones -->
+    <aside id="sidebar" class="sidebar" aria-label="Navegación de feeds">
+      <div class="sidebar-header">
+        <div class="brand-group">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span class="brand-title">feedly <small>local</small></span>
+        </div>
+        <span id="gpu-badge" class="gpu-badge" title="Estado del motor gráfico WebGPU-WGSL">WebGPU</span>
+      </div>
+
+      <div class="sidebar-scroll">
+        <nav class="nav-section" aria-label="Vistas principales">
+          <button type="button" class="nav-item active" data-view="all">
+            <span class="nav-item-label">Todas las noticias</span>
+            <span id="count-all" class="nav-count">0</span>
+          </button>
+          <button type="button" class="nav-item" data-view="saved">
+            <span class="nav-item-label">Guardadas (Leer luego)</span>
+            <span id="count-saved" class="nav-count">0</span>
+          </button>
+          <button type="button" class="nav-item" data-view="notes">
+            <span class="nav-item-label">Con notas</span>
+            <span class="nav-dot-note" aria-hidden="true"></span>
+          </button>
+        </nav>
+
+        <div class="sidebar-divider"></div>
+
+        <div class="feeds-section-header">
+          <span>SUSCRIPCIONES</span>
+          <button type="button" id="btn-open-add-feed" class="btn-inline-add" title="Añadir nuevo feed">+ Añadir</button>
+        </div>
+
+        <div id="categories-tree" class="categories-tree">
+          <!-- Renderizado dinámico de carpetas y feeds -->
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="wgsl-control">
+          <label for="select-tone-mode">Imagen WGSL:</label>
+          <select id="select-tone-mode" class="select-minimal">
+            <option value="0">Editorial suave</option>
+            <option value="1">Color original</option>
+            <option value="2">Prensa monocromo</option>
+          </select>
+        </div>
+        <div class="sidebar-footer-actions">
+          <button type="button" id="btn-add-feed-bottom" class="btn-sidebar-action">+ Añadir Feed</button>
+          <button type="button" id="btn-import-opml" class="btn-sidebar-action">Importar OPML</button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Área central principal -->
+    <main class="main-area">
+      <header class="topbar">
+        <div class="topbar-start">
+          <button type="button" id="btn-toggle-sidebar" class="btn-icon" title="Mostrar u ocultar panel izquierdo" aria-label="Alternar barra lateral">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+          <div class="view-heading">
+            <h1 id="current-view-title">Todas las noticias</h1>
+            <span id="current-view-subtitle" class="view-subtitle">Cargando...</span>
+          </div>
+        </div>
+
+        <div class="topbar-center">
+          <div class="search-box">
+            <svg class="search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <input
+              type="search"
+              id="search-input"
+              placeholder="Buscar por título, extracto, fuente o nota..."
+              autocomplete="off"
+            />
+            <button type="button" id="btn-clear-search" class="btn-clear-search" hidden title="Limpiar búsqueda">×</button>
+          </div>
+        </div>
+
+        <div class="topbar-end">
+          <button type="button" id="btn-undo-dismiss" class="btn-subtle btn-undo" hidden title="Restaurar las últimas noticias leídas y eliminadas">
+            ↩ Deshacer borrado
+          </button>
+
+          <div class="cols-selector" title="Tarjetas por fila">
+            <label for="select-columns" class="sr-only">Columnas</label>
+            <select id="select-columns" class="select-minimal">
+              <option value="auto">3 por fila (Auto)</option>
+              <option value="3">Fijar 3 por fila</option>
+              <option value="2">2 por fila</option>
+              <option value="1">1 por fila</option>
+            </select>
+          </div>
+
+          <button type="button" id="btn-mark-all-read" class="btn-subtle" title="Marcar todas las noticias visibles como leídas y eliminarlas (excepto las guardadas)">
+            ✓ Leídas (Limpiar vista)
+          </button>
+
+          <button type="button" id="btn-sync" class="btn-sync" title="Actualizar todos los feeds ahora">
+            <span id="sync-spinner" class="sync-dot"></span>
+            <span id="sync-label">Recargar</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Contenedor del flujo de tarjetas con Container Queries -->
+      <section id="stream-container" class="stream-container" aria-live="polite">
+        <div id="empty-state" class="empty-state" hidden>
+          <p class="empty-title">No hay noticias pendientes en esta vista</p>
+          <p class="empty-desc">Las noticias leídas se eliminan de inmediato (salvo las guardadas). Pulsa «Recargar» para buscar artículos nuevos o añade más feeds en el panel izquierdo.</p>
+        </div>
+
+        <div id="cards-grid" class="cards-grid">
+          <!-- Tarjetas de noticias renderizadas dinámicamente -->
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Panel lateral derecho de lectura rápida y notas (Slide-over estilo Feedly) -->
+  <div id="reader-backdrop" class="reader-backdrop" hidden></div>
+  <aside id="reader-drawer" class="reader-drawer" aria-hidden="true">
+    <header class="reader-header">
+      <div class="reader-header-actions">
+        <button type="button" id="reader-btn-read-delete" class="btn-subtle">
+          ✓ Marcar leída y eliminar
+        </button>
+        <button type="button" id="reader-btn-save" class="btn-subtle">
+          Guardar (Proteger)
+        </button>
+        <a id="reader-link-original" href="#" target="_blank" rel="noopener noreferrer" class="btn-subtle">
+          Abrir web original ↗
+        </a>
+      </div>
+      <button type="button" id="reader-btn-close" class="btn-icon" title="Cerrar panel (Esc)">✕</button>
+    </header>
+
+    <div class="reader-body">
+      <div class="reader-meta-top">
+        <span id="reader-feed-title" class="reader-source"></span>
+        <span>·</span>
+        <time id="reader-date" class="reader-time"></time>
+      </div>
+      <h2 id="reader-title" class="reader-title"></h2>
+
+      <!-- Bloque de nota personal (color puntual discreto) -->
+      <div class="reader-note-box">
+        <label for="reader-note-input">Nota personal (protege la noticia frente al borrado automático):</label>
+        <div class="reader-note-row">
+          <input type="text" id="reader-note-input" placeholder="Escribe una nota o recordatorio sobre esta noticia..." />
+          <button type="button" id="reader-btn-save-note" class="btn-note-save">Guardar nota</button>
+        </div>
+      </div>
+
+      <div class="reader-extract-bar">
+        <button type="button" id="reader-btn-fulltext" class="btn-subtle">
+          Extraer texto completo del artículo original
+        </button>
+      </div>
+
+      <div id="reader-content" class="reader-content"></div>
+    </div>
+  </aside>
+
+  <!-- Modal nativo <dialog> para añadir un nuevo feed -->
+  <dialog id="add-feed-dialog" class="modal-dialog">
+    <form id="add-feed-form" method="dialog">
+      <header class="modal-header">
+        <h3>Añadir nuevo Feed</h3>
+        <button type="button" id="btn-close-add-feed" class="btn-icon">✕</button>
+      </header>
+      <div class="modal-body">
+        <p class="modal-hint">Introduce la URL directa del RSS/Atom o simplemente la dirección de la página web (ej. <code>https://www.xataka.com</code>) para autodetectarlo.</p>
+        <div class="form-field">
+          <label for="input-feed-url">Dirección web o URL del Feed *</label>
+          <input type="text" id="input-feed-url" required placeholder="https://..." />
+        </div>
+        <div class="form-field">
+          <label for="input-feed-category">Carpeta / Categoría</label>
+          <input type="text" id="input-feed-category" list="existing-categories" placeholder="Ej. Tecnología, Prensa, Ciencia..." value="General" />
+          <datalist id="existing-categories"></datalist>
+        </div>
+        <div class="form-field">
+          <label for="input-feed-title">Nombre personalizado (opcional)</label>
+          <input type="text" id="input-feed-title" placeholder="Se detectará automáticamente si lo dejas vacío" />
+        </div>
+        <p id="add-feed-error" class="form-error" hidden></p>
+      </div>
+      <footer class="modal-footer">
+        <button type="button" id="btn-cancel-add-feed" class="btn-subtle">Cancelar</button>
+        <button type="submit" id="btn-submit-add-feed" class="btn-primary">Añadir y sincronizar</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Modal nativo <dialog> para importar OPML de Feedly -->
+  <dialog id="import-opml-dialog" class="modal-dialog">
+    <form id="import-opml-form" method="dialog">
+      <header class="modal-header">
+        <h3>Importar suscripciones OPML de Feedly</h3>
+        <button type="button" id="btn-close-opml" class="btn-icon">✕</button>
+      </header>
+      <div class="modal-body">
+        <p class="modal-hint">
+          Puedes exportar todas tus fuentes actuales de Feedly entrando en
+          <a href="https://feedly.com/i/opml" target="_blank" rel="noopener noreferrer">feedly.com/i/opml</a>
+          y seleccionando aquí el archivo <code>.opml</code> o <code>.xml</code> descargado.
+        </p>
+        <div class="form-field">
+          <label for="input-opml-file">Archivo OPML (.opml / .xml)</label>
+          <input type="file" id="input-opml-file" accept=".opml,.xml,text/xml" required />
+        </div>
+      </div>
+      <footer class="modal-footer">
+        <button type="button" id="btn-cancel-opml" class="btn-subtle">Cancelar</button>
+        <button type="submit" class="btn-primary">Importar feeds</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

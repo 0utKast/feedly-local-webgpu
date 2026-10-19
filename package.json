@@ -1,0 +1,12 @@
+{
+  "name": "feedly-local-webgpu",
+  "version": "1.0.0",
+  "description": "Lector de feeds local inspirado en Feedly con vista de 3 tarjetas, SQLite FTS5 y procesado visual WebGPU/WGSL",
+  "main": "server.js",
+  "scripts": {
+    "start": "node --no-warnings server.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  }
+}
