@@ -277,6 +277,12 @@ async function flushPendingReadArticles(source = 'scroll') {
 
 let syncPollTimer = null;
 
+function compareArticlesNewestFirst(a, b) {
+  const tsDiff = (Number(b.published_ts) || 0) - (Number(a.published_ts) || 0);
+  if (tsDiff !== 0) return tsDiff;
+  return (Number(b.id) || 0) - (Number(a.id) || 0);
+}
+
 function updateSyncButtonUi() {
   const ss = state.sidebar.syncStatus;
   if (ss && ss.isSyncing) {
@@ -286,7 +292,7 @@ function updateSyncButtonUi() {
       syncPollTimer = setTimeout(() => {
         syncPollTimer = null;
         pollSyncProgress().catch(() => {});
-      }, 2200);
+      }, 1500);
     }
   } else {
     elBtnSync.classList.remove('syncing');
@@ -294,7 +300,7 @@ function updateSyncButtonUi() {
   }
 }
 
-// Polling en segundo plano mientras sincroniza: actualiza contadores sin destruir el scroll del usuario
+// Polling en segundo plano mientras sincroniza: coloca las noticias más nuevas al principio en orden descendente
 async function pollSyncProgress() {
   await flushPendingReadArticles('scroll');
 
@@ -317,19 +323,18 @@ async function pollSyncProgress() {
     renderFeedManagerList();
   }
 
-  // Si la vista estaba vacía y acaban de entrar noticias nuevas, o si terminó la sincronización y estamos arriba del todo
   const existingIds = new Set(state.articles.map((a) => a.id));
-  const incomingUnread = data.articles.filter(
+  const incomingUnread = (data.articles || []).filter(
     (a) => !existingIds.has(a.id) && !readInSessionIds.has(a.id)
   );
 
-  if (state.articles.length === 0 && incomingUnread.length > 0) {
-    state.articles = incomingUnread;
-    renderCardsGrid();
-  } else if (incomingUnread.length > 0 && elStreamContainer.scrollTop < 80) {
-    // Añadir silenciosamente las nuevas noticias al final o inicio sin reinsertar las ya leídas
-    state.articles.push(...incomingUnread);
-    appendArticlesToGrid(incomingUnread);
+  if (incomingUnread.length > 0) {
+    const wasNearTop = !elStreamContainer || elStreamContainer.scrollTop < 120;
+    insertArticlesSortedNewestFirst(incomingUnread);
+    if (wasNearTop && elStreamContainer) {
+      elStreamContainer.scrollTop = 0;
+    }
+    requestAnimationFrame(() => markVisibleCardsAsSeen());
   }
 
   updateStreamEndBox();
@@ -353,8 +358,8 @@ async function fetchState({ resetScroll = true } = {}) {
   readInSessionIds.clear();
 
   state.sidebar = data.sidebar;
-  state.articles = data.articles;
-  state.totalMatching = data.totalMatching ?? data.articles.length;
+  state.articles = (data.articles || []).slice().sort(compareArticlesNewestFirst);
+  state.totalMatching = data.totalMatching ?? state.articles.length;
 
   renderSidebar();
   renderTopbar();
@@ -421,8 +426,7 @@ async function loadMoreArticles() {
     );
 
     if (freshArticles.length > 0) {
-      state.articles.push(...freshArticles);
-      appendArticlesToGrid(freshArticles);
+      insertArticlesSortedNewestFirst(freshArticles);
       requestAnimationFrame(() => markVisibleCardsAsSeen());
     } else {
       // No quedan más artículos distintos que cargar
@@ -453,7 +457,7 @@ async function triggerSync() {
     body: JSON.stringify(payload)
   });
 
-  // 2. Recargar estado limpio desde el principio (las noticias ya leídas han sido eliminadas de SQLite)
+  // 2. Recargar estado limpio desde el principio (las noticias más nuevas primero en orden descendente)
   await fetchState({ resetScroll: true });
 }
 
@@ -800,14 +804,40 @@ function createArticleCardElement(article) {
   return card;
 }
 
-function appendArticlesToGrid(articlesList) {
+function insertArticlesSortedNewestFirst(articlesList) {
   if (!articlesList || articlesList.length === 0) return;
-  elEmptyState.hidden = true;
-  const fragment = document.createDocumentFragment();
-  for (const article of articlesList) {
-    fragment.appendChild(createArticleCardElement(article));
+
+  if (state.articles.length === 0) {
+    state.articles = articlesList.slice().sort(compareArticlesNewestFirst);
+    renderCardsGrid();
+    return;
   }
-  elCardsGrid.appendChild(fragment);
+
+  const existingIds = new Set(state.articles.map((a) => a.id));
+  const toAdd = articlesList.filter((a) => a && !existingIds.has(a.id));
+  if (toAdd.length === 0) return;
+
+  elEmptyState.hidden = true;
+  state.articles.push(...toAdd);
+  state.articles.sort(compareArticlesNewestFirst);
+
+  const existingCardMap = new Map();
+  for (const el of elCardsGrid.querySelectorAll('.news-card')) {
+    existingCardMap.set(Number(el.dataset.id), el);
+  }
+
+  let nextDomCard = null;
+  for (let i = state.articles.length - 1; i >= 0; i--) {
+    const art = state.articles[i];
+    let cardEl = existingCardMap.get(art.id);
+    if (!cardEl) {
+      cardEl = createArticleCardElement(art);
+      elCardsGrid.insertBefore(cardEl, nextDomCard);
+      existingCardMap.set(art.id, cardEl);
+    }
+    nextDomCard = cardEl;
+  }
+
   updateStreamEndBox();
 }
 

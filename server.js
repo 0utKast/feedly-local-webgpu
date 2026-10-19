@@ -760,11 +760,12 @@ function parseFeedXml(xmlText, feedUrl) {
 
     // Si el feed no tiene etiqueta de fecha (ej. WikiCFP), asignarle un timestamp determinista
     // basado en su guid/título (anclado varios días atrás) para que no cambie ni se adelante al pulsar Recargar
+    const nowMs = Date.now();
     let publishedTs = 0;
     if (rawDate) {
       const parsed = Date.parse(rawDate.trim());
       if (!Number.isNaN(parsed)) {
-        publishedTs = parsed;
+        publishedTs = Math.min(parsed, nowMs);
       }
     }
     if (!publishedTs) {
@@ -774,12 +775,12 @@ function parseFeedXml(xmlText, feedUrl) {
         hash = (hash * 31 + seedStr.charCodeAt(i)) >>> 0;
       }
       // Timestamp estable escalonado en una ventana fija de 4 a 9 días atrás (redondeado al segundo)
-      const anchorDayMs = Math.floor(Date.now() / (86400 * 1000)) * (86400 * 1000);
+      const anchorDayMs = Math.floor(nowMs / (86400 * 1000)) * (86400 * 1000);
       publishedTs =
         anchorDayMs - 4 * 86400 * 1000 - (hash % (5 * 86400 * 1000)) - itemIndex * 60000;
       publishedTs = Math.floor(publishedTs / 1000) * 1000;
     }
-    itemIndex++;
+    const xmlOrder = itemIndex++;
 
     const sourcePublisher = decodeHtmlEntities(
       extractTagContent(block, ['source']).replace(/<[^>]+>/g, '')
@@ -814,9 +815,17 @@ function parseFeedXml(xmlText, feedUrl) {
       author,
       excerpt,
       contentHtml: decodeHtmlEntities(contentHtml),
-      imageUrl
+      imageUrl,
+      _xmlOrder: xmlOrder
     });
   }
+
+  // Ordenar siempre de más reciente a más antigua antes de recortar o insertar
+  items.sort((a, b) => {
+    const diff = (b.publishedTs || 0) - (a.publishedTs || 0);
+    if (diff !== 0) return diff;
+    return (a._xmlOrder || 0) - (b._xmlOrder || 0);
+  });
 
   return { feedTitle, siteUrl, items };
 }
@@ -1162,7 +1171,9 @@ async function syncSingleFeed(feedRow, preloadedXml = null) {
 
     let addedCount = 0;
     const now = Date.now();
-    const itemsToProcess = parsed.items.slice(0, 20);
+    // Tomar las 20 noticias más recientes del feed e insertarlas de más antigua a más nueva
+    // para que la más reciente tenga también el mayor id en desempates (ORDER BY published_ts DESC, id DESC)
+    const itemsToProcess = parsed.items.slice(0, 20).reverse();
 
     for (const item of itemsToProcess) {
       const normTitle = normalizeArticleTitleKey(item.title);
