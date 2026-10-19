@@ -17,7 +17,8 @@ const state = {
   },
   articles: [],
   activeArticle: null,
-  managerSelectedIds: new Set()
+  managerSelectedIds: new Set(),
+  expandedCategories: new Set()
 };
 
 // Referencias DOM
@@ -203,25 +204,75 @@ function renderSidebar() {
     if (feedsInCat.length === 0) continue;
 
     const catCount = feedsInCat.reduce((acc, f) => acc + (Number(f.article_count) || 0), 0);
+    const hasActiveFeedInside = feedsInCat.some((f) => f.id === state.feedId);
+    const isCatActive = state.categoryId === cat.id || (!state.expandedCategories.has(cat.id) && hasActiveFeedInside);
 
-    const catBlock = document.createElement('div');
+    const catBlock = document.createElement('details');
     catBlock.className = 'category-block';
+    if (state.expandedCategories.has(cat.id)) {
+      catBlock.open = true;
+    }
 
-    const catBtn = document.createElement('button');
-    catBtn.type = 'button';
-    catBtn.className = 'category-header' + (state.categoryId === cat.id ? ' active' : '');
-    catBtn.innerHTML = `
+    const catSummary = document.createElement('summary');
+    catSummary.className = 'category-header' + (isCatActive ? ' active' : '');
+    catSummary.innerHTML = `
+      <span class="cat-chevron" title="Desplegar / contraer fuentes" aria-hidden="true">▸</span>
       <span class="nav-item-label">${escapeHtml(cat.name)}</span>
       <span class="nav-count">${catCount}</span>
     `;
-    catBtn.addEventListener('click', () => {
-      state.categoryId = cat.id;
-      state.feedId = null;
-      state.filter = 'all';
-      state.viewTitle = cat.name;
-      fetchState();
+
+    catSummary.addEventListener('click', (e) => {
+      e.preventDefault();
+      const clickedChevron = e.target.closest('.cat-chevron');
+      const currentlyOpen = state.expandedCategories.has(cat.id);
+
+      if (clickedChevron) {
+        if (currentlyOpen) {
+          state.expandedCategories.delete(cat.id);
+          catBlock.open = false;
+        } else {
+          state.expandedCategories.add(cat.id);
+          catBlock.open = true;
+        }
+        return;
+      }
+
+      if (!currentlyOpen) {
+        // Si estaba cerrada: desplegar sus fuentes y mostrar las noticias de la categoría
+        state.expandedCategories.add(cat.id);
+        catBlock.open = true;
+        state.categoryId = cat.id;
+        state.feedId = null;
+        state.filter = 'all';
+        state.viewTitle = cat.name;
+        fetchState();
+      } else {
+        // Si estaba abierta: contraer la lista de fuentes (y si estábamos dentro de una fuente hija, volver a la categoría)
+        state.expandedCategories.delete(cat.id);
+        catBlock.open = false;
+        if (state.categoryId !== cat.id || state.feedId !== null) {
+          state.categoryId = cat.id;
+          state.feedId = null;
+          state.filter = 'all';
+          state.viewTitle = cat.name;
+          fetchState();
+        }
+      }
     });
-    catBlock.appendChild(catBtn);
+
+    // Sincronizar si el navegador abre el <details> automáticamente (p. ej. al buscar en página con Cmd+F)
+    catBlock.addEventListener('toggle', () => {
+      if (catBlock.open) {
+        state.expandedCategories.add(cat.id);
+      } else {
+        state.expandedCategories.delete(cat.id);
+      }
+    });
+
+    catBlock.appendChild(catSummary);
+
+    const feedsListEl = document.createElement('div');
+    feedsListEl.className = 'category-feeds-list';
 
     for (const feed of feedsInCat) {
       const row = document.createElement('div');
@@ -238,6 +289,7 @@ function renderSidebar() {
         <span class="nav-count">${feed.error_msg ? '!' : feed.article_count || 0}</span>
       `;
       selectBtn.addEventListener('click', () => {
+        state.expandedCategories.add(cat.id);
         state.feedId = feed.id;
         state.categoryId = null;
         state.filter = 'all';
@@ -262,9 +314,10 @@ function renderSidebar() {
 
       row.appendChild(selectBtn);
       row.appendChild(delBtn);
-      catBlock.appendChild(row);
+      feedsListEl.appendChild(row);
     }
 
+    catBlock.appendChild(feedsListEl);
     fragment.appendChild(catBlock);
   }
 
@@ -839,6 +892,7 @@ function bindEvents() {
       if (!res.ok) throw new Error(data.error || 'No se pudo crear la alerta de búsqueda');
 
       elAddFeedDialog.close();
+      if (data.feed.category_id) state.expandedCategories.add(data.feed.category_id);
       state.feedId = data.feed.id;
       state.categoryId = null;
       state.viewTitle = data.feed.title;
@@ -873,6 +927,7 @@ function bindEvents() {
       if (!res.ok) throw new Error(data.error || 'No se pudo añadir la fuente');
 
       elAddFeedDialog.close();
+      if (data.feed.category_id) state.expandedCategories.add(data.feed.category_id);
       state.feedId = data.feed.id;
       state.categoryId = null;
       state.viewTitle = data.feed.title;

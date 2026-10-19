@@ -27,6 +27,7 @@
 
   --font-sans: -apple-system, BlinkMacSystemFont, "Inter", "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --sidebar-width: 264px;
+  interpolate-size: allow-keywords;
 }
 
 *,
@@ -254,30 +255,45 @@ body {
 .categories-tree {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 3px;
 }
 
 .category-block {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  display: block;
+}
+
+.category-block::details-content {
+  block-size: 0;
+  overflow: clip;
+  transition: block-size 0.2s ease, content-visibility 0.2s ease allow-discrete;
+}
+
+.category-block[open]::details-content {
+  block-size: auto;
+  block-size: calc-size(auto, size);
 }
 
 .category-header {
   display: flex;
   align-items: safe center;
-  justify-content: space-between;
+  gap: 6px;
   inline-size: 100%;
-  padding-block: 5px;
-  padding-inline: 10px;
+  padding-block: 7px;
+  padding-inline: 8px 10px;
   border: none;
   border-radius: 5px;
   background: transparent;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
   text-align: start;
+  user-select: none;
+  list-style: none;
+}
+
+.category-header::-webkit-details-marker {
+  display: none;
 }
 
 .category-header:hover {
@@ -288,11 +304,49 @@ body {
   background-color: var(--bg-active);
 }
 
+.cat-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 14px;
+  block-size: 14px;
+  font-size: 10px;
+  color: var(--text-muted);
+  transition: transform 0.16s ease, color 0.16s ease;
+  flex-shrink: 0;
+}
+
+.category-header:hover .cat-chevron {
+  color: var(--text-primary);
+}
+
+.category-block[open] > .category-header .cat-chevron {
+  transform: rotate(90deg);
+  color: var(--text-primary);
+}
+
+.category-feeds-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-inline-start: 14px;
+  padding-inline-start: 6px;
+  margin-block: 2px 6px;
+  border-inline-start: 1px solid var(--border-light);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .category-block::details-content,
+  .cat-chevron {
+    transition: none !important;
+  }
+}
+
 .feed-row {
   display: flex;
   align-items: safe center;
   border-radius: 5px;
-  padding-inline-start: 10px;
+  padding-inline-start: 4px;
 }
 
 .feed-row:hover {
