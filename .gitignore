@@ -1,0 +1,22 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Node / Web
+node_modules/
+dist/
+build/
+.env
+.env.*
+
+# Python / Virtual Environment
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Databases & Local Data
+*.db
+*.sqlite
+*.sqlite3
+data/
