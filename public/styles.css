@@ -611,6 +611,103 @@ body {
   color: var(--text-primary);
 }
 
+.btn-mark-read-trigger {
+  anchor-name: --mark-read-anchor;
+}
+
+.mark-read-caret {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-inline-start: 2px;
+}
+
+.mark-read-popover {
+  position-anchor: --mark-read-anchor;
+  inset: auto;
+  top: anchor(bottom);
+  right: anchor(right);
+  position-area: block-end span-inline-start;
+  position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+  margin-block-start: 6px;
+  margin-inline: 0;
+  padding: 6px;
+  min-inline-size: 290px;
+  background-color: #ffffff;
+  border: 1px solid var(--border-hover);
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.14);
+  color: var(--text-primary);
+}
+
+[popover].mark-read-popover:is(:popover-open, .\:popover-open) {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.mark-read-popover-header {
+  padding-block: 5px 6px;
+  padding-inline: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  border-block-end: 1px solid var(--border-light);
+  margin-block-end: 2px;
+}
+
+.mark-read-option {
+  display: flex;
+  align-items: safe center;
+  justify-content: space-between;
+  gap: 12px;
+  inline-size: 100%;
+  padding-block: 8px;
+  padding-inline: 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: start;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.mark-read-option:hover {
+  background-color: var(--bg-hover);
+}
+
+.mark-read-option-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-inline-size: 0;
+}
+
+.mark-read-option-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.mark-read-option-desc {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.mark-read-option-count {
+  flex-shrink: 0;
+  padding-block: 2px;
+  padding-inline: 7px;
+  border-radius: 999px;
+  background-color: var(--bg-subtle);
+  border: 1px solid var(--border-light);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
 .select-minimal {
   padding-block: 5px;
   padding-inline: 8px;

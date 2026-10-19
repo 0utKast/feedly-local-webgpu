@@ -124,9 +124,41 @@
             </select>
           </div>
 
-          <button type="button" id="btn-mark-all-read" class="btn-subtle" title="Marcar todas las noticias de este apartado como leídas y eliminarlas (excepto las guardadas)">
-            ✓ Leídas (Limpiar vista)
+          <button
+            type="button"
+            id="btn-mark-all-read"
+            class="btn-subtle btn-mark-read-trigger"
+            popovertarget="mark-read-popover"
+            title="Marcar noticias como leídas sin leerlas (Todas, más de 24 horas o más de una semana)"
+          >
+            <span>✓ Marcar como leídas</span>
+            <span class="mark-read-caret" aria-hidden="true">▾</span>
           </button>
+
+          <div id="mark-read-popover" popover="auto" class="mark-read-popover">
+            <div class="mark-read-popover-header">Marcar como leídas en este apartado</div>
+            <button type="button" class="mark-read-option" data-age-scope="all">
+              <span class="mark-read-option-info">
+                <span class="mark-read-option-title">Todas las noticias</span>
+                <span class="mark-read-option-desc">Marca todas las pendientes de esta vista</span>
+              </span>
+              <span id="mark-count-all" class="mark-read-option-count">0</span>
+            </button>
+            <button type="button" class="mark-read-option" data-age-scope="older_24h">
+              <span class="mark-read-option-info">
+                <span class="mark-read-option-title">Noticias con más de 24 horas</span>
+                <span class="mark-read-option-desc">Conserva las publicadas en el último día</span>
+              </span>
+              <span id="mark-count-24h" class="mark-read-option-count">0</span>
+            </button>
+            <button type="button" class="mark-read-option" data-age-scope="older_7d">
+              <span class="mark-read-option-info">
+                <span class="mark-read-option-title">Noticias con más de una semana</span>
+                <span class="mark-read-option-desc">Conserva las de los últimos 7 días</span>
+              </span>
+              <span id="mark-count-7d" class="mark-read-option-count">0</span>
+            </button>
+          </div>
 
           <button type="button" id="btn-sync" class="btn-sync" title="Actualizar feeds ahora">
             <span id="sync-spinner" class="sync-dot"></span>

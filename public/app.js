@@ -1,5 +1,13 @@
 import { WebGpuCardMediaEngine } from './webgpu-media.js';
 
+// Feature detect Popover and CSS Anchor Positioning (per modern-web-guidance)
+if (!('popover' in HTMLElement.prototype)) {
+  import('https://unpkg.com/@oddbird/popover-polyfill@latest/dist/popover.min.js').catch(() => {});
+}
+if (!('anchorName' in document.documentElement.style)) {
+  import('https://unpkg.com/@oddbird/css-anchor-positioning').catch(() => {});
+}
+
 const gpuMedia = new WebGpuCardMediaEngine();
 
 const state = {
@@ -10,6 +18,7 @@ const state = {
   search: '',
   autoReadOnScroll: localStorage.getItem('feedly_auto_read_scroll') !== 'false',
   totalMatching: 0,
+  ageCounts: { all: 0, older24h: 0, older7d: 0 },
   isLoadingMore: false,
   sidebar: {
     categories: [],
@@ -49,6 +58,10 @@ const elBtnToggleAutoRead = document.getElementById('btn-toggle-autoread');
 const elSelectCols = document.getElementById('select-columns');
 const elSelectTone = document.getElementById('select-tone-mode');
 const elBtnMarkAllRead = document.getElementById('btn-mark-all-read');
+const elMarkReadPopover = document.getElementById('mark-read-popover');
+const elMarkCountAll = document.getElementById('mark-count-all');
+const elMarkCount24h = document.getElementById('mark-count-24h');
+const elMarkCount7d = document.getElementById('mark-count-7d');
 const elBtnSync = document.getElementById('btn-sync');
 const elSyncLabel = document.getElementById('sync-label');
 const elStreamContainer = document.getElementById('stream-container');
@@ -200,6 +213,17 @@ function markArticleReadOptimistic(article, source = 'scroll') {
     feedObj.article_count = Math.max(0, (Number(feedObj.article_count) || 0) - 1);
   }
   state.totalMatching = Math.max(0, (Number(state.totalMatching) || 0) - 1);
+  if (state.ageCounts) {
+    state.ageCounts.all = Math.max(0, (Number(state.ageCounts.all) || 0) - 1);
+    const pubTs = Number(article.published_ts) || 0;
+    const now = Date.now();
+    if (pubTs > 0 && pubTs < now - 24 * 3600 * 1000) {
+      state.ageCounts.older24h = Math.max(0, (Number(state.ageCounts.older24h) || 0) - 1);
+    }
+    if (pubTs > 0 && pubTs < now - 7 * 24 * 3600 * 1000) {
+      state.ageCounts.older7d = Math.max(0, (Number(state.ageCounts.older7d) || 0) - 1);
+    }
+  }
 
   updateSidebarCountsInPlace();
   renderTopbar();
@@ -316,6 +340,9 @@ async function pollSyncProgress() {
 
   state.sidebar = data.sidebar;
   state.totalMatching = data.totalMatching ?? data.articles.length;
+  if (data.ageCounts) {
+    state.ageCounts = data.ageCounts;
+  }
 
   renderSidebar();
   renderTopbar();
@@ -360,6 +387,11 @@ async function fetchState({ resetScroll = true } = {}) {
   state.sidebar = data.sidebar;
   state.articles = (data.articles || []).slice().sort(compareArticlesNewestFirst);
   state.totalMatching = data.totalMatching ?? state.articles.length;
+  state.ageCounts = data.ageCounts || {
+    all: state.totalMatching,
+    older24h: 0,
+    older7d: 0
+  };
 
   renderSidebar();
   renderTopbar();
@@ -418,6 +450,9 @@ async function loadMoreArticles() {
     }
     if (typeof data.totalMatching === 'number') {
       state.totalMatching = data.totalMatching;
+    }
+    if (data.ageCounts) {
+      state.ageCounts = data.ageCounts;
     }
 
     const existingIds = new Set(state.articles.map((a) => a.id));
@@ -622,6 +657,16 @@ function renderTopbar() {
   } else {
     elViewSubtitle.textContent =
       totalInView === 1 ? '1 noticia sin leer' : `${totalInView} noticias sin leer`;
+  }
+
+  if (elMarkCountAll) {
+    elMarkCountAll.textContent = Math.max(0, state.ageCounts?.all ?? totalInView);
+  }
+  if (elMarkCount24h) {
+    elMarkCount24h.textContent = Math.max(0, state.ageCounts?.older24h ?? 0);
+  }
+  if (elMarkCount7d) {
+    elMarkCount7d.textContent = Math.max(0, state.ageCounts?.older7d ?? 0);
   }
 
   elBtnUndo.hidden = !(state.sidebar.canUndoCount > 0 || readInSessionIds.size > 0);
@@ -1109,12 +1154,13 @@ async function removeSingleCardRead(article) {
   }
 }
 
-async function markReadAndDelete(articleIds, { markAllInView = false } = {}) {
+async function markReadAndDelete(articleIds, { markAllInView = false, ageScope = 'all' } = {}) {
   await flushPendingReadArticles('manual');
 
   const payload = markAllInView
     ? {
         markAllInView: true,
+        ageScope,
         feedId: state.feedId,
         categoryId: state.categoryId,
         filter: state.filter,
@@ -1333,9 +1379,27 @@ function bindEvents() {
     gpuMedia.setToneMode(Number(elSelectTone.value));
   });
 
-  elBtnMarkAllRead.addEventListener('click', async () => {
-    await markReadAndDelete([], { markAllInView: true });
-  });
+  if (elMarkReadPopover) {
+    elMarkReadPopover.addEventListener('toggle', (e) => {
+      if (e.newState === 'open' && !('anchorName' in document.documentElement.style) && elBtnMarkAllRead) {
+        const rect = elBtnMarkAllRead.getBoundingClientRect();
+        elMarkReadPopover.style.position = 'fixed';
+        elMarkReadPopover.style.top = `${Math.round(rect.bottom + 6)}px`;
+        elMarkReadPopover.style.left = `${Math.max(8, Math.round(rect.right - 295))}px`;
+        elMarkReadPopover.style.margin = '0';
+      }
+    });
+
+    elMarkReadPopover.querySelectorAll('.mark-read-option').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const ageScope = btn.dataset.ageScope || 'all';
+        try {
+          elMarkReadPopover.hidePopover?.();
+        } catch {}
+        await markReadAndDelete([], { markAllInView: true, ageScope });
+      });
+    });
+  }
 
   elBtnUndo.addEventListener('click', async () => {
     await flushPendingReadArticles('scroll');

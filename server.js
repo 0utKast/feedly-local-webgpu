@@ -1390,10 +1390,26 @@ function queryArticlesWithTotal({ feedId, categoryId, filter, search, excludeIds
     excludeIds
   });
 
+  const now = Date.now();
+  const cutoff24h = now - 24 * 3600 * 1000;
+  const cutoff7d = now - 7 * 24 * 3600 * 1000;
+
   const countRow = db
-    .prepare(`SELECT COUNT(*) AS total ${fromAndWhere}`)
-    .get(...params);
+    .prepare(`
+      SELECT
+        COUNT(*) AS total,
+        SUM(CASE WHEN a.published_ts < ? THEN 1 ELSE 0 END) AS older_24h,
+        SUM(CASE WHEN a.published_ts < ? THEN 1 ELSE 0 END) AS older_7d
+      ${fromAndWhere}
+    `)
+    .get(cutoff24h, cutoff7d, ...params);
+
   const totalMatching = countRow?.total || 0;
+  const ageCounts = {
+    all: totalMatching,
+    older24h: countRow?.older_24h || 0,
+    older7d: countRow?.older_7d || 0
+  };
 
   const selectSql = `
     SELECT
@@ -1412,7 +1428,7 @@ function queryArticlesWithTotal({ feedId, categoryId, filter, search, excludeIds
     .prepare(selectSql)
     .all(...params, ...excludeParams, Number(limit));
 
-  return { articles, totalMatching };
+  return { articles, totalMatching, ageCounts };
 }
 
 function queryArticles(opts) {
@@ -1641,7 +1657,7 @@ const server = http.createServer(async (req, res) => {
       const limit = Number(parsedUrl.searchParams.get('limit')) || 90;
 
       const sidebar = getSidebarState();
-      const { articles, totalMatching } = queryArticlesWithTotal({
+      const { articles, totalMatching, ageCounts } = queryArticlesWithTotal({
         feedId,
         categoryId,
         filter,
@@ -1652,6 +1668,7 @@ const server = http.createServer(async (req, res) => {
         sidebar,
         articles,
         totalMatching,
+        ageCounts,
         hasMore: totalMatching > articles.length
       });
     }
@@ -1668,7 +1685,7 @@ const server = http.createServer(async (req, res) => {
         ? excludeRaw.split(',').map(Number).filter(Boolean)
         : [];
 
-      const { articles, totalMatching } = queryArticlesWithTotal({
+      const { articles, totalMatching, ageCounts } = queryArticlesWithTotal({
         feedId,
         categoryId,
         filter,
@@ -1679,6 +1696,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, {
         articles,
         totalMatching,
+        ageCounts,
         sidebar: getSidebarState()
       });
     }
@@ -1898,6 +1916,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // 9. Marcar noticias como leídas -> Eliminación inmediata excepto guardadas
+    // Soporta las tres modalidades de Feedly: todas ('all'), >24 horas ('older_24h') y >1 semana ('older_7d')
     if (req.method === 'POST' && pathname === '/api/articles/mark-read') {
       const body = await readJsonBody(req);
       let ids = Array.isArray(body.articleIds) ? body.articleIds : [];
@@ -1909,9 +1928,21 @@ const server = http.createServer(async (req, res) => {
           filter: body.filter,
           search: body.search
         });
+
+        let ageWhere = '';
+        const ageParams = [];
+        const ageScope = body.ageScope || 'all';
+        if (ageScope === 'older_24h') {
+          ageWhere = ' AND a.published_ts < ?';
+          ageParams.push(Date.now() - 24 * 3600 * 1000);
+        } else if (ageScope === 'older_7d') {
+          ageWhere = ' AND a.published_ts < ?';
+          ageParams.push(Date.now() - 7 * 24 * 3600 * 1000);
+        }
+
         const allViewRows = db
-          .prepare(`SELECT a.id ${fromAndWhere}`)
-          .all(...params);
+          .prepare(`SELECT a.id ${fromAndWhere}${ageWhere}`)
+          .all(...params, ...ageParams);
         ids = allViewRows.map((r) => r.id);
       }
 
