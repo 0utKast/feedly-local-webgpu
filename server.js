@@ -841,16 +841,31 @@ function parseFeedXml(xmlText, feedUrl) {
 // 3. Búsqueda automática de fotografía periodística contextual por titular (sin repetir imágenes)
 // ============================================================================
 
-async function fetchWithTimeout(url, options = {}, timeoutMs = 7000) {
+let redditFetchChain = Promise.resolve();
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 9500) {
+  const isReddit = /reddit\.com/i.test(String(url || ''));
+  if (isReddit) {
+    const prev = redditFetchChain;
+    let release;
+    redditFetchChain = new Promise((r) => {
+      release = r;
+    });
+    await prev;
+    setTimeout(release, 2200);
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    const userAgent = isReddit
+      ? 'macOS:com.jesusconde.feedlylocal:v2.1 (by /u/feedly_local)'
+      : 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36';
     const res = await fetch(url, {
       ...options,
       signal: controller.signal,
       headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+        'User-Agent': userAgent,
         Accept:
           'application/rss+xml, application/atom+xml, application/xml, text/xml, text/html, */*;q=0.8',
         ...(options.headers || {})
