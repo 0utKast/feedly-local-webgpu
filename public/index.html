@@ -24,6 +24,10 @@
             <span class="nav-item-label">Todas las noticias</span>
             <span id="count-all" class="nav-count">0</span>
           </button>
+          <button type="button" class="nav-item" data-view="keywords">
+            <span class="nav-item-label">Alertas de búsqueda</span>
+            <span class="nav-badge-subtle">Google/Reddit</span>
+          </button>
           <button type="button" class="nav-item" data-view="saved">
             <span class="nav-item-label">Guardadas (Leer luego)</span>
             <span id="count-saved" class="nav-count">0</span>
@@ -37,12 +41,15 @@
         <div class="sidebar-divider"></div>
 
         <div class="feeds-section-header">
-          <span>SUSCRIPCIONES</span>
-          <button type="button" id="btn-open-add-feed" class="btn-inline-add" title="Añadir nuevo feed">+ Añadir</button>
+          <span>CARPETAS Y FUENTES</span>
+          <div class="feeds-header-btns">
+            <button type="button" id="btn-open-manage-feeds" class="btn-inline-add" title="Gestionar y limpiar fuentes en lote">Limpiar</button>
+            <button type="button" id="btn-open-add-feed" class="btn-inline-add" title="Añadir fuente o búsqueda por palabra clave">+ Añadir</button>
+          </div>
         </div>
 
         <div id="categories-tree" class="categories-tree">
-          <!-- Renderizado dinámico de carpetas y feeds -->
+          <!-- Renderizado dinámico de carpetas y feeds del OPML -->
         </div>
       </div>
 
@@ -56,8 +63,8 @@
           </select>
         </div>
         <div class="sidebar-footer-actions">
-          <button type="button" id="btn-add-feed-bottom" class="btn-sidebar-action">+ Añadir Feed</button>
-          <button type="button" id="btn-import-opml" class="btn-sidebar-action">Importar OPML</button>
+          <button type="button" id="btn-add-feed-bottom" class="btn-sidebar-action">+ Fuente / Alerta</button>
+          <button type="button" id="btn-manage-feeds-bottom" class="btn-sidebar-action">Gestionar (<span id="count-feeds-total">0</span>)</button>
         </div>
       </div>
     </aside>
@@ -88,7 +95,7 @@
             <input
               type="search"
               id="search-input"
-              placeholder="Buscar por título, extracto, fuente o nota..."
+              placeholder="Filtrar noticias cargadas por título, extracto, fuente o nota..."
               autocomplete="off"
             />
             <button type="button" id="btn-clear-search" class="btn-clear-search" hidden title="Limpiar búsqueda">×</button>
@@ -114,7 +121,7 @@
             ✓ Leídas (Limpiar vista)
           </button>
 
-          <button type="button" id="btn-sync" class="btn-sync" title="Actualizar todos los feeds ahora">
+          <button type="button" id="btn-sync" class="btn-sync" title="Actualizar feeds ahora">
             <span id="sync-spinner" class="sync-dot"></span>
             <span id="sync-label">Recargar</span>
           </button>
@@ -125,7 +132,7 @@
       <section id="stream-container" class="stream-container" aria-live="polite">
         <div id="empty-state" class="empty-state" hidden>
           <p class="empty-title">No hay noticias pendientes en esta vista</p>
-          <p class="empty-desc">Las noticias leídas se eliminan de inmediato (salvo las guardadas). Pulsa «Recargar» para buscar artículos nuevos o añade más feeds en el panel izquierdo.</p>
+          <p class="empty-desc">Las noticias leídas se eliminan de inmediato (salvo las guardadas). Pulsa «Recargar» para buscar artículos nuevos o selecciona otra carpeta en el panel izquierdo.</p>
         </div>
 
         <div id="cards-grid" class="cards-grid">
@@ -135,7 +142,7 @@
     </main>
   </div>
 
-  <!-- Panel lateral derecho de lectura rápida y notas (Slide-over estilo Feedly) -->
+  <!-- Panel lateral derecho de lectura rápida y notas -->
   <div id="reader-backdrop" class="reader-backdrop" hidden></div>
   <aside id="reader-drawer" class="reader-drawer" aria-hidden="true">
     <header class="reader-header">
@@ -161,7 +168,6 @@
       </div>
       <h2 id="reader-title" class="reader-title"></h2>
 
-      <!-- Bloque de nota personal (color puntual discreto) -->
       <div class="reader-note-box">
         <label for="reader-note-input">Nota personal (protege la noticia frente al borrado automático):</label>
         <div class="reader-note-row">
@@ -180,49 +186,189 @@
     </div>
   </aside>
 
-  <!-- Modal nativo <dialog> para añadir un nuevo feed -->
-  <dialog id="add-feed-dialog" class="modal-dialog">
-    <form id="add-feed-form" method="dialog">
-      <header class="modal-header">
-        <h3>Añadir nuevo Feed</h3>
-        <button type="button" id="btn-close-add-feed" class="btn-icon">✕</button>
-      </header>
+  <!-- Modal nativo <dialog> para Añadir Fuente o Alerta de Búsqueda (Google News / Reddit / Web) -->
+  <dialog id="add-feed-dialog" class="modal-dialog modal-medium">
+    <header class="modal-header">
+      <h3>Añadir nueva fuente o alerta de búsqueda</h3>
+      <button type="button" id="btn-close-add-feed" class="btn-icon">✕</button>
+    </header>
+
+    <div class="modal-tabs" role="tablist">
+      <button type="button" class="modal-tab active" data-tab="tab-keyword">
+        Búsqueda por Palabras Clave (Google / Reddit / HN)
+      </button>
+      <button type="button" class="modal-tab" data-tab="tab-url">
+        Sitio Web / URL RSS / YouTube
+      </button>
+    </div>
+
+    <!-- Pestaña 1: Alertas por Palabras Clave estilo Feedly -->
+    <form id="add-keyword-form" class="tab-panel" data-panel="tab-keyword">
       <div class="modal-body">
-        <p class="modal-hint">Introduce la URL directa del RSS/Atom o simplemente la dirección de la página web (ej. <code>https://www.xataka.com</code>) para autodetectarlo.</p>
+        <p class="modal-hint">
+          Crea una fuente automática que rastree noticias o publicaciones sobre un tema concreto (igual que las alertas de búsqueda de Feedly).
+        </p>
+
+        <div class="form-field">
+          <label for="input-kw-query">Palabras clave o tema a vigilar *</label>
+          <input
+            type="text"
+            id="input-kw-query"
+            required
+            placeholder='Ej. Inteligencia Artificial, Gemini, Claude, "WebGPU"...'
+          />
+          <div class="quick-chips">
+            <span class="chips-label">Sugerencias:</span>
+            <button type="button" class="chip-btn" data-kw="Inteligencia Artificial">Inteligencia Artificial</button>
+            <button type="button" class="chip-btn" data-kw="Gemini">Gemini</button>
+            <button type="button" class="chip-btn" data-kw="Claude Anthropic">Claude Anthropic</button>
+            <button type="button" class="chip-btn" data-kw="WebGPU WGSL">WebGPU WGSL</button>
+            <button type="button" class="chip-btn" data-kw="C++23 OR C++26">C++</button>
+          </div>
+        </div>
+
+        <div class="form-row-2">
+          <div class="form-field">
+            <label for="select-kw-provider">Sistema de búsqueda</label>
+            <select id="select-kw-provider" class="select-input">
+              <option value="google_es">Google News (Español)</option>
+              <option value="google_en">Google News (Inglés / Internacional)</option>
+              <option value="reddit_search">Reddit (Búsqueda por palabras clave)</option>
+              <option value="reddit_subreddit">Reddit (Subreddit directo, ej. r/Gemini)</option>
+              <option value="hn_search">Hacker News (Búsqueda por palabras clave)</option>
+            </select>
+          </div>
+
+          <div class="form-field">
+            <label for="input-kw-category">Carpeta de destino</label>
+            <input type="text" id="input-kw-category" list="existing-categories" value="Must Read" />
+          </div>
+        </div>
+
+        <div id="reddit-extra-fields" class="form-row-2" hidden>
+          <div class="form-field" id="field-reddit-sub">
+            <label for="input-kw-subreddit">Restringir a Subreddit (opcional)</label>
+            <input type="text" id="input-kw-subreddit" placeholder="Ej. r/LocalLLaMA o vacío para todo Reddit" />
+          </div>
+          <div class="form-field">
+            <label for="select-kw-sort">Orden de resultados en Reddit</label>
+            <select id="select-kw-sort" class="select-input">
+              <option value="new">Más recientes (New)</option>
+              <option value="relevance">Más relevantes</option>
+              <option value="top">Destacados del día (Top)</option>
+              <option value="hot">Tendencias (Hot)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-field">
+          <label for="input-kw-title">Nombre personalizado en tu lista (opcional)</label>
+          <input type="text" id="input-kw-title" placeholder="Se generará automáticamente si lo dejas en blanco" />
+        </div>
+
+        <p id="add-kw-error" class="form-error" hidden></p>
+      </div>
+
+      <footer class="modal-footer">
+        <button type="button" class="btn-subtle btn-cancel-add">Cancelar</button>
+        <button type="submit" id="btn-submit-kw" class="btn-primary">Crear fuente de búsqueda</button>
+      </footer>
+    </form>
+
+    <!-- Pestaña 2: URL de sitio web o RSS tradicional -->
+    <form id="add-feed-form" class="tab-panel" data-panel="tab-url" hidden>
+      <div class="modal-body">
+        <p class="modal-hint">
+          Introduce la dirección de cualquier página web, blog, subreddit (<code>r/cpp</code>) o URL directa del XML para detectar su feed.
+        </p>
         <div class="form-field">
           <label for="input-feed-url">Dirección web o URL del Feed *</label>
-          <input type="text" id="input-feed-url" required placeholder="https://..." />
+          <input type="text" id="input-feed-url" required placeholder="https://www.xataka.com o r/MachineLearning" />
         </div>
-        <div class="form-field">
-          <label for="input-feed-category">Carpeta / Categoría</label>
-          <input type="text" id="input-feed-category" list="existing-categories" placeholder="Ej. Tecnología, Prensa, Ciencia..." value="General" />
-          <datalist id="existing-categories"></datalist>
-        </div>
-        <div class="form-field">
-          <label for="input-feed-title">Nombre personalizado (opcional)</label>
-          <input type="text" id="input-feed-title" placeholder="Se detectará automáticamente si lo dejas vacío" />
+        <div class="form-row-2">
+          <div class="form-field">
+            <label for="input-feed-category">Carpeta / Categoría</label>
+            <input type="text" id="input-feed-category" list="existing-categories" value="00. Tecnología" />
+          </div>
+          <div class="form-field">
+            <label for="input-feed-title">Nombre personalizado (opcional)</label>
+            <input type="text" id="input-feed-title" placeholder="Automático" />
+          </div>
         </div>
         <p id="add-feed-error" class="form-error" hidden></p>
       </div>
       <footer class="modal-footer">
-        <button type="button" id="btn-cancel-add-feed" class="btn-subtle">Cancelar</button>
+        <button type="button" class="btn-subtle btn-cancel-add">Cancelar</button>
         <button type="submit" id="btn-submit-add-feed" class="btn-primary">Añadir y sincronizar</button>
       </footer>
     </form>
+
+    <datalist id="existing-categories"></datalist>
   </dialog>
 
-  <!-- Modal nativo <dialog> para importar OPML de Feedly -->
+  <!-- Modal nativo <dialog> para Gestionar y Limpiar Fuentes del OPML en Lote -->
+  <dialog id="manage-feeds-dialog" class="modal-dialog modal-large">
+    <header class="modal-header">
+      <div>
+        <h3>Gestor y Limpieza de Fuentes</h3>
+        <p id="manage-feeds-summary" class="modal-subtitle">Cargando fuentes...</p>
+      </div>
+      <div class="modal-header-right">
+        <button type="button" id="btn-open-opml-from-manager" class="btn-subtle">Importar otro OPML...</button>
+        <button type="button" id="btn-close-manage-feeds" class="btn-icon">✕</button>
+      </div>
+    </header>
+
+    <div class="manager-toolbar">
+      <div class="manager-filters">
+        <input
+          type="search"
+          id="manager-search-input"
+          class="manager-search"
+          placeholder="Buscar fuente por nombre, dominio o URL..."
+        />
+        <select id="manager-category-filter" class="select-minimal">
+          <option value="">Todas las carpetas</option>
+        </select>
+        <select id="manager-status-filter" class="select-minimal">
+          <option value="all">Todos los estados</option>
+          <option value="error">Con error / Caídas</option>
+          <option value="empty">Sin artículos (0)</option>
+          <option value="keywords">Alertas de búsqueda (Google/Reddit)</option>
+        </select>
+      </div>
+
+      <div class="manager-bulk-bar">
+        <div class="manager-bulk-left">
+          <button type="button" id="btn-select-all-visible" class="btn-subtle">Seleccionar visibles</button>
+          <button type="button" id="btn-select-all-errors" class="btn-subtle">Seleccionar fuentes con error</button>
+          <button type="button" id="btn-deselect-all" class="btn-subtle">Ninguna</button>
+        </div>
+        <button type="button" id="btn-bulk-delete" class="btn-danger-outline" disabled>
+          Eliminar seleccionadas (<span id="bulk-selected-count">0</span>)
+        </button>
+      </div>
+    </div>
+
+    <div id="manager-feeds-list" class="manager-feeds-list">
+      <!-- Lista de fuentes con selección múltiple, cambio de carpeta y borrado en 1 clic -->
+    </div>
+
+    <footer class="modal-footer">
+      <button type="button" id="btn-done-manage-feeds" class="btn-primary">Listo</button>
+    </footer>
+  </dialog>
+
+  <!-- Modal nativo <dialog> para importar OPML manual -->
   <dialog id="import-opml-dialog" class="modal-dialog">
     <form id="import-opml-form" method="dialog">
       <header class="modal-header">
-        <h3>Importar suscripciones OPML de Feedly</h3>
+        <h3>Importar archivo OPML de Feedly</h3>
         <button type="button" id="btn-close-opml" class="btn-icon">✕</button>
       </header>
       <div class="modal-body">
         <p class="modal-hint">
-          Puedes exportar todas tus fuentes actuales de Feedly entrando en
-          <a href="https://feedly.com/i/opml" target="_blank" rel="noopener noreferrer">feedly.com/i/opml</a>
-          y seleccionando aquí el archivo <code>.opml</code> o <code>.xml</code> descargado.
+          Tu archivo <code>feedly-opml-...opml</code> de la carpeta del proyecto ya se ha cargado automáticamente. Si deseas importar otro archivo adicional, selecciónalo aquí:
         </p>
         <div class="form-field">
           <label for="input-opml-file">Archivo OPML (.opml / .xml)</label>

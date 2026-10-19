@@ -1,0 +1,347 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<opml version="1.0">
+    <head>
+        <title>Jesús subscriptions in feedly Cloud</title>
+    </head>
+    <body>
+        <outline text="tutoriales" title="tutoriales"/>
+        <outline text="wikipedia" title="wikipedia"/>
+        <outline text="00. Diseño" title="00. Diseño">
+            <outline type="rss" text="The Unofficial Photoshop Weblog" title="The Unofficial Photoshop Weblog" xmlUrl="http://photoshop.weblogsinc.com/rss.xml" htmlUrl="https://www.engadget.com/"/>
+            <outline type="rss" text="swissmiss" title="swissmiss" xmlUrl="http://swissmiss.typepad.com/weblog/atom.xml" htmlUrl="https://www.swiss-miss.com"/>
+        </outline>
+        <outline text="Tech" title="Tech"/>
+        <outline text="Python" title="Python"/>
+        <outline text="Tech-News" title="Tech-News"/>
+        <outline text="Must Read" title="Must Read">
+            <outline type="rss" text="&quot;Gemini&quot; - Google News" title="&quot;Gemini&quot; - Google News" xmlUrl="https://news.google.com/news/rss/search/section/q/Gemini/Gemini?ned=us" htmlUrl="https://news.google.com/search?hl=en-US&amp;gl=US&amp;ceid=US:en&amp;q=Gemini"/>
+            <outline type="rss" text="freeCodeCamp Programming Tutorials: Python, JavaScript, Git &amp; More" title="freeCodeCamp Programming Tutorials: Python, JavaScript, Git &amp; More" xmlUrl="https://medium.freecodecamp.com/feed" htmlUrl="https://www.freecodecamp.org/news/"/>
+            <outline type="rss" text="Wirecutter: Reviews for the Real World" title="Wirecutter: Reviews for the Real World" xmlUrl="http://feeds.feedburner.com/TheWirecutter" htmlUrl="https://www.nytimes.com/wirecutter"/>
+            <outline type="rss" text="tristanbrindle.com" title="tristanbrindle.com" xmlUrl="https://tristanbrindle.com/feed.xml" htmlUrl="https://tristanbrindle.com/"/>
+            <outline type="rss" text="Codingtidbit.com" title="Codingtidbit.com" xmlUrl="https://codingtidbit.com/feed/" htmlUrl="https://codingtidbit.com"/>
+            <outline type="rss" text="TED Tech" title="TED Tech" xmlUrl="http://feeds.feedburner.com/iTunesPodcastTTTechnology" htmlUrl="http://audiocollective.ted.com"/>
+            <outline type="rss" text="DZone.com Feed" title="DZone.com Feed" xmlUrl="http://feeds.dzone.com/dzone/frontpage" htmlUrl="https://dzone.com"/>
+            <outline type="rss" text="InfoQ" title="InfoQ" xmlUrl="http://www.infoq.com/rss/rss.action" htmlUrl="https://www.infoq.com"/>
+            <outline type="rss" text="Pressenza" title="Pressenza" xmlUrl="https://www.pressenza.com/feed/" htmlUrl="https://www.pressenza.com/"/>
+            <outline type="rss" text="Top posts on r/Gemini" title="Top posts on r/Gemini" xmlUrl="https://api.reddit.com/subreddit/Gemini;top" htmlUrl="https://www.reddit.com/r/Gemini/top?t=day"/>
+            <outline type="rss" text="MIT News - Artificial intelligence" title="MIT News - Artificial intelligence" xmlUrl="http://news.mit.edu/rss/topic/artificial-intelligence2" htmlUrl="https://news.mit.edu/rss/topic/artificial-intelligence2"/>
+            <outline type="rss" text="Senior Planet from AARP" title="Senior Planet from AARP" xmlUrl="http://seniorplanet.org/feed/" htmlUrl="https://seniorplanet.org/"/>
+            <outline type="rss" text="&quot;google antigravity&quot; - Google News" title="&quot;google antigravity&quot; - Google News" xmlUrl="https://news.google.com/rss/search?hl=en-US&amp;gl=US&amp;ceid=US:en&amp;q=google+antigravity" htmlUrl="https://news.google.com/search?hl=en-US&amp;gl=US&amp;ceid=US:en&amp;q=google+antigravity"/>
+            <outline type="rss" text="Gizmodo" title="Gizmodo" xmlUrl="http://feeds.gawker.com/gizmodo/full" htmlUrl="https://gizmodo.com/"/>
+            <outline type="rss" text="TechViral" title="TechViral" xmlUrl="http://feeds.feedburner.com/TechViral" htmlUrl="https://techviral.net/"/>
+            <outline type="rss" text="Machine Learning" title="Machine Learning" xmlUrl="http://www.reddit.com/r/MachineLearning/.rss" htmlUrl="https://www.reddit.com/r/MachineLearning/"/>
+            <outline type="rss" text="C++" title="C++" xmlUrl="https://feedly.com/f/alert/a36d73d8-6ff7-4310-bb9a-08bab764bd46"/>
+            <outline type="rss" text="Stratechery by Ben Thompson" title="Stratechery by Ben Thompson" xmlUrl="https://stratechery.com/feed/" htmlUrl="https://stratechery.com"/>
+            <outline type="rss" text="Quantum Computing" title="Quantum Computing" xmlUrl="https://feedly.com/f/alert/5c32087d-d6e8-49d1-a9de-f73e145405e6"/>
+            <outline type="rss" text="ScienceDirect Publication: Computer Vision and Image Understanding" title="ScienceDirect Publication: Computer Vision and Image Understanding" xmlUrl="http://rss.sciencedirect.com/publication/science/10773142" htmlUrl="https://www.sciencedirect.com/journal/computer-vision-and-image-understanding"/>
+            <outline type="rss" text="NYT - Media " title="NYT - Media " xmlUrl="http://www.nytimes.com/services/xml/rss/nyt/MediaandAdvertising.xml" htmlUrl="https://www.nytimes.com/section/business/media"/>
+            <outline type="rss" text="Stack Overflow Blog" title="Stack Overflow Blog" xmlUrl="http://blog.stackoverflow.com/feed/" htmlUrl="https://stackoverflow.blog/"/>
+            <outline type="rss" text="POCO C++ Libraries Blog" title="POCO C++ Libraries Blog" xmlUrl="http://pocoproject.org/blog/?feed=rss2" htmlUrl="https://pocoproject.org/blog"/>
+            <outline type="rss" text="CNET" title="CNET" xmlUrl="http://news.cnet.com/2547-1_3-0-20.xml" htmlUrl="https://www.cnet.com"/>
+            <outline type="rss" text="Andrzej's C++ blog" title="Andrzej's C++ blog" xmlUrl="http://akrzemi1.wordpress.com/feed/" htmlUrl="https://akrzemi1.wordpress.com"/>
+            <outline type="rss" text="Lifehacker" title="Lifehacker" xmlUrl="http://feeds.gawker.com/lifehacker/vip" htmlUrl="https://lifehacker.com/feed/rss"/>
+            <outline type="rss" text="Ivan Čukić" title="Ivan Čukić" xmlUrl="https://cukic.co/feeds/atom.xml" htmlUrl="https://cukic.co"/>
+            <outline type="rss" text="CodeGuru" title="CodeGuru" xmlUrl="http://www.codeguru.com/icom_includes/feeds/codeguru/rss-all.xml" htmlUrl="https://www.codeguru.com/"/>
+            <outline type="rss" text="WWDRecent Stories" title="WWDRecent Stories" xmlUrl="http://www.wwd.com/rss/2/news/recentstories" htmlUrl="https://wwd.com"/>
+            <outline type="rss" text="WonderHowTo" title="WonderHowTo" xmlUrl="http://www.wonderhowto.com/rss.xml" htmlUrl="https://www.wonderhowto.com/"/>
+            <outline type="rss" text="Standard C++ | Articles &amp; Books" title="Standard C++ | Articles &amp; Books" xmlUrl="http://isocpp.org/blog/rss/category/articles-books" htmlUrl="http://isocpp.org/blog"/>
+            <outline type="rss" text="L'actualité de Sortiraparis.com en direct" title="L'actualité de Sortiraparis.com en direct" xmlUrl="https://www.sortiraparis.com/es/rss/sortir" htmlUrl="https://www.sortiraparis.com/"/>
+            <outline type="rss" text="Awesome C++ Weekly" title="Awesome C++ Weekly" xmlUrl="https://cpp.libhunt.com/newsletter/feed" htmlUrl="https://cpp.libhunt.com/newsletter"/>
+            <outline type="rss" text="Inside China" title="Inside China" xmlUrl="https://www.fredgao.com/feed" htmlUrl="https://www.fredgao.com"/>
+            <outline type="rss" text="&quot;Claude&quot; - Google News" title="&quot;Claude&quot; - Google News" xmlUrl="https://news.google.com/news/rss/search/section/q/Claude/Claude?ned=us" htmlUrl="https://news.google.com/search?hl=en-US&amp;gl=US&amp;ceid=US:en&amp;q=Claude"/>
+            <outline type="rss" text="The latest from GitHub's engineering team - The GitHub Blog" title="The latest from GitHub's engineering team - The GitHub Blog" xmlUrl="http://githubengineering.com/atom.xml" htmlUrl="https://github.blog/engineering/"/>
+            <outline type="rss" text="Musings on computer systems" title="Musings on computer systems" xmlUrl="https://buttondown.email/nelhage/rss" htmlUrl="https://buttondown.com/nelhage"/>
+            <outline type="rss" text="V8 JavaScript and WebAssembly language features" title="V8 JavaScript and WebAssembly language features" xmlUrl="https://v8.dev/features.atom" htmlUrl="https://v8.dev/features"/>
+            <outline type="rss" text="Nieman Lab" title="Nieman Lab" xmlUrl="http://www.niemanlab.org/feed/" htmlUrl="https://www.niemanlab.org"/>
+            <outline type="rss" text="software" title="software" xmlUrl="https://feedly.com/f/alert/3ee27752-4017-40cf-acef-dc845b6ad7f6"/>
+            <outline type="rss" text="Qt Group" title="Qt Group" xmlUrl="https://www.youtube.com/feeds/videos.xml?channel_id=UCsyT1C1M-QoHQREjsixgayQ" htmlUrl="https://www.youtube.com/channel/UCsyT1C1M-QoHQREjsixgayQ"/>
+            <outline type="rss" text="Meeting C++ blog" title="Meeting C++ blog" xmlUrl="http://www.meetingcpp.com/blogen.xml" htmlUrl="https://www.meetingcpp.com/"/>
+            <outline type="rss" text="New Atlas: Technology-Innovation-Outdoor News" title="New Atlas: Technology-Innovation-Outdoor News" xmlUrl="http://gizmag.com/xml/" htmlUrl="https://newatlas.com/"/>
+            <outline type="rss" text="iboB" title="iboB" xmlUrl="http://ibob.github.io/feed.xml" htmlUrl="https://ibob.bg/"/>
+            <outline type="rss" text="Machine Learning Blog | ML@CMU | Carnegie Mellon University" title="Machine Learning Blog | ML@CMU | Carnegie Mellon University" xmlUrl="https://blog.ml.cmu.edu/feed/" htmlUrl="https://blog.ml.cmu.edu"/>
+            <outline type="rss" text="Tech | HowStuffWorks" title="Tech | HowStuffWorks" xmlUrl="http://syndication.howstuffworks.com/rss/tech" htmlUrl="https://electronics.howstuffworks.com/tech"/>
+            <outline type="rss" text="KDnuggets" title="KDnuggets" xmlUrl="http://feeds.feedburner.com/kdnuggets-data-mining-analytics" htmlUrl="https://www.kdnuggets.com"/>
+            <outline type="rss" text="MachineLearningMastery.com" title="MachineLearningMastery.com" xmlUrl="http://feeds.feedburner.com/MachineLearningMastery" htmlUrl="https://machinelearningmastery.com/"/>
+            <outline type="rss" text="Engineering – Docker" title="Engineering – Docker" xmlUrl="https://blog.docker.com/category/engineering/feed/" htmlUrl="https://www.docker.com"/>
+            <outline type="rss" text="r/Gemini" title="r/Gemini" xmlUrl="https://api.reddit.com/subreddit/Gemini" htmlUrl="https://www.reddit.com/r/Gemini/new"/>
+            <outline type="rss" text="Standard C++" title="Standard C++" xmlUrl="http://isocpp.org/blog/rss" htmlUrl="http://isocpp.org/blog"/>
+            <outline type="rss" text="The C++ Alliance" title="The C++ Alliance" xmlUrl="https://cppalliance.org/feed.xml" htmlUrl="http://cppalliance.org/"/>
+            <outline type="rss" text="CppCon" title="CppCon" xmlUrl="http://cppcon.org/feed/" htmlUrl="https://cppcon.org"/>
+            <outline type="rss" text="Poynter" title="Poynter" xmlUrl="http://www.poynter.org/feed/" htmlUrl="https://www.poynter.org/"/>
+            <outline type="rss" text="MYCPLUS" title="MYCPLUS" xmlUrl="http://mycplus.com/feed/" htmlUrl="https://www.mycplus.com"/>
+            <outline type="rss" text="Press Gazette" title="Press Gazette" xmlUrl="http://www.pressgazette.co.uk/rssfeed.xml" htmlUrl="https://pressgazette.co.uk/"/>
+            <outline type="rss" text="Import AI" title="Import AI" xmlUrl="https://mappingbabel.wordpress.com/feed/" htmlUrl="https://jack-clark.net"/>
+            <outline type="rss" text="&quot;OpenAI&quot; - Google News" title="&quot;OpenAI&quot; - Google News" xmlUrl="https://news.google.com/news/rss/search/section/q/OpenAI/OpenAI?ned=us" htmlUrl="https://news.google.com/search?hl=en-US&amp;gl=US&amp;ceid=US:en&amp;q=OpenAI"/>
+            <outline type="rss" text="Real Media – The View From Below" title="Real Media – The View From Below" xmlUrl="http://realmedia.press/feed/" htmlUrl="https://realmedia.press/"/>
+            <outline type="rss" text="CppCon" title="CppCon" xmlUrl="https://www.youtube.com/feeds/videos.xml?channel_id=UCMlGfpWw-RUdWX_JbLCukXg" htmlUrl="https://www.youtube.com/channel/UCMlGfpWw-RUdWX_JbLCukXg"/>
+            <outline type="rss" text="CppCon (uploads) on YouTube" title="CppCon (uploads) on YouTube" xmlUrl="https://www.youtube.com/playlist?list=UUMlGfpWw-RUdWX_JbLCukXg" htmlUrl="https://www.youtube.com/playlist?list=UUMlGfpWw-RUdWX_JbLCukXg"/>
+            <outline type="rss" text="Data Science Central" title="Data Science Central" xmlUrl="http://www.datasciencecentral.com/profiles/blog/feed?xn_auth=no" htmlUrl="https://www.datasciencecentral.com/"/>
+            <outline type="rss" text="Tech" title="Tech" xmlUrl="http://www.huffingtonpost.com/feeds/verticals/technology/index.xml" htmlUrl="https://www.huffpost.com/life/technology"/>
+            <outline type="rss" text="Marius Bancila's Blog" title="Marius Bancila's Blog" xmlUrl="http://mariusbancila.ro/blog/feed/" htmlUrl="https://mariusbancila.ro/blog"/>
+            <outline type="rss" text="Meeting C++ Blogroll" title="Meeting C++ Blogroll" xmlUrl="http://meetingcpp.com/blogroll.xml" htmlUrl="https://www.meetingcpp.com/"/>
+            <outline type="rss" text="r/datascience" title="r/datascience" xmlUrl="https://api.reddit.com/subreddit/datascience" htmlUrl="https://www.reddit.com/r/datascience/new"/>
+            <outline type="rss" text="SPORTS AGENT BLOG" title="SPORTS AGENT BLOG" xmlUrl="http://www.sportsagentblog.com/feed/" htmlUrl="https://sportsagentblog.com"/>
+            <outline type="rss" text="Meeting C++ Feed" title="Meeting C++ Feed" xmlUrl="https://meetingcpp.com/feed.xml" htmlUrl="https://www.meetingcpp.com/"/>
+            <outline type="rss" text="TED Blog" title="TED Blog" xmlUrl="http://feeds.feedburner.com/tedblog" htmlUrl="https://blog.ted.com"/>
+            <outline type="rss" text="Digital Trends" title="Digital Trends" xmlUrl="http://www.digitaltrends.com/feed/?key=f00edf6a58d2a8740e624dda919cab37" htmlUrl="https://www.digitaltrends.com/"/>
+            <outline type="rss" text="Rambling Comments - Len Holgate's blog" title="Rambling Comments - Len Holgate's blog" xmlUrl="http://www.lenholgate.com/index.rdf" htmlUrl="https://lenholgate.com/"/>
+            <outline type="rss" text="Coding Horror" title="Coding Horror" xmlUrl="http://feeds.feedburner.com/codinghorror/" htmlUrl="https://blog.codinghorror.com/"/>
+            <outline type="rss" text="C++ Stories" title="C++ Stories" xmlUrl="https://www.cppstories.com/index.xml" htmlUrl="https://www.cppstories.com/"/>
+            <outline type="rss" text="TED Talks Daily (SD video)" title="TED Talks Daily (SD video)" xmlUrl="http://feeds.feedburner.com/tedtalks_video" htmlUrl="https://www.ted.com/talks"/>
+            <outline type="rss" text="Media &amp; Entertainment News | TechCrunch" title="Media &amp; Entertainment News | TechCrunch" xmlUrl="https://techcrunch.com/media-2/feed/" htmlUrl="https://techcrunch.com/category/media-entertainment/"/>
+            <outline type="rss" text="MIT Technology Review" title="MIT Technology Review" xmlUrl="http://www.technologyreview.com/rss/rss.aspx" htmlUrl="https://www.technologyreview.com"/>
+            <outline type="rss" text="Standard C++ FAQ Revisions" title="Standard C++ FAQ Revisions" xmlUrl="http://isocpp.org/themes/wiki_themes/isocpp/rss/faq-revisions-rss.php" htmlUrl="http://isocpp.org/"/>
+            <outline type="rss" text="Cloud Native Computing Foundation" title="Cloud Native Computing Foundation" xmlUrl="https://www.cncf.io/feed" htmlUrl="https://www.cncf.io"/>
+            <outline type="rss" text="Standard C++ | Training" title="Standard C++ | Training" xmlUrl="http://isocpp.org/blog/rss/category/training" htmlUrl="http://isocpp.org/blog"/>
+        </outline>
+        <outline text="second life" title="second life"/>
+        <outline text="Miscelanea" title="Miscelanea"/>
+        <outline text="00. Tecnología" title="00. Tecnología">
+            <outline type="rss" text="Planet Mozilla" title="Planet Mozilla" xmlUrl="http://planet.mozilla.org/rss20.xml" htmlUrl="https://planet.mozilla.org/"/>
+            <outline type="rss" text="Jesús Conde" title="Jesús Conde" xmlUrl="https://www.youtube.com/feeds/videos.xml?channel_id=UCbr0g_ADLsdzhcoAFUZkuug" htmlUrl="https://www.youtube.com/channel/UCbr0g_ADLsdzhcoAFUZkuug"/>
+            <outline type="rss" text="Generative AI" title="Generative AI" xmlUrl="https://feedly.com/f/alert/e6904414-b1ff-4f5b-bbc9-6e9b6644b979"/>
+            <outline type="rss" text="Axios" title="Axios" xmlUrl="https://www.youtube.com/feeds/videos.xml?channel_id=UCfU4-ArXuSX0tpyApyklMAg" htmlUrl="https://www.youtube.com/channel/UCfU4-ArXuSX0tpyApyklMAg"/>
+            <outline type="rss" text="Dataquest" title="Dataquest" xmlUrl="https://www.dataquest.io/blog/atom.xml" htmlUrl="https://www.dataquest.io/"/>
+            <outline type="rss" text="Uploads by 0utKast" title="Uploads by 0utKast" xmlUrl="http://gdata.youtube.com/feeds/base/users/0utKast/uploads?alt=rss&amp;v=2&amp;orderby=published&amp;client=ytapi-youtube-profile" htmlUrl="https://www.youtube.com/playlist?list=UUbr0g_ADLsdzhcoAFUZkuug"/>
+            <outline type="rss" text="New Scientist - Tech" title="New Scientist - Tech" xmlUrl="http://feeds.newscientist.com/tech" htmlUrl="https://www.newscientist.com/"/>
+            <outline type="rss" text="Artificial Intelligence Made Simple" title="Artificial Intelligence Made Simple" xmlUrl="https://artificialintelligencemadesimple.substack.com/feed" htmlUrl="https://www.artificialintelligencemadesimple.com"/>
+            <outline type="rss" text="Anthropic Engineering Blog" title="Anthropic Engineering Blog" xmlUrl="https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_engineering.xml" htmlUrl="https://www.anthropic.com/engineering"/>
+            <outline type="rss" text="AV Club" title="AV Club" xmlUrl="http://www.avclub.com/feed/rss/" htmlUrl="https://www.avclub.com"/>
+            <outline type="rss" text="OpenAI" title="OpenAI" xmlUrl="https://www.youtube.com/feeds/videos.xml?channel_id=UCXZCJLdBC09xxGZ6gcdrc6A" htmlUrl="https://www.youtube.com/channel/UCXZCJLdBC09xxGZ6gcdrc6A"/>
+            <outline type="rss" text="Google Maps Mania" title="Google Maps Mania" xmlUrl="http://feeds.feedburner.com/GoogleMapsMania" htmlUrl="http://googlemapsmania.blogspot.com/"/>
+            <outline type="rss" text="Stories by ODSC - Open Data Science on Medium" title="Stories by ODSC - Open Data Science on Medium" xmlUrl="https://medium.com/feed/@ODSC" htmlUrl="https://medium.com/@odsc?source=rss-2b9d62538208------2"/>
+            <outline type="rss" text="OpenAI News" title="OpenAI News" xmlUrl="https://openai.com/feed.xml" htmlUrl="https://openai.com/news"/>
+            <outline type="rss" text="The Social Software Weblog" title="The Social Software Weblog" xmlUrl="http://socialsoftware.weblogsinc.com/rss.xml" htmlUrl="https://www.engadget.com/"/>
+            <outline type="rss" text="Rust" title="Rust" xmlUrl="https://feedly.com/f/alert/d6ed7636-5ff0-4636-844a-588b1855dabf"/>
+            <outline type="rss" text="New World Notes" title="New World Notes" xmlUrl="http://feeds.feedburner.com/NewWorldNotes" htmlUrl="https://nwn.blogs.com/nwn/"/>
+            <outline type="rss" text="L.A. Times - Technology News" title="L.A. Times - Technology News" xmlUrl="http://feeds.latimes.com/latimes/technology" htmlUrl="https://www.latimes.com"/>
+            <outline type="rss" text="WWDRecent Stories" title="WWDRecent Stories" xmlUrl="http://www.wwd.com/rss/2/news/recentstories" htmlUrl="https://wwd.com"/>
+            <outline type="rss" text="Abduzeedo | Graphic Design Inspiration and Photoshop Tutorials" title="Abduzeedo | Graphic Design Inspiration and Photoshop Tutorials" xmlUrl="http://abduzeedo.com/rss.xml" htmlUrl="https://abduzeedo.com/"/>
+            <outline type="rss" text="Mozilla Developer News" title="Mozilla Developer News" xmlUrl="http://developer.mozilla.org/devnews/index.php/feed/" htmlUrl="https://blog.mozilla.org/en/"/>
+            <outline type="rss" text="google antigravity" title="google antigravity" xmlUrl="https://feedly.com/f/alert/a1d3c50a-f62f-47c7-ad3a-973cf5fc12fa"/>
+            <outline type="rss" text="Quanta Magazine" title="Quanta Magazine" xmlUrl="http://www.quantamagazine.org/feed/" htmlUrl="https://www.quantamagazine.org"/>
+            <outline type="rss" text="The Quanta Podcast" title="The Quanta Podcast" xmlUrl="https://www.quantamagazine.org/feed/podcast/" htmlUrl="https://www.quantamagazine.org/tag/quanta-podcast/"/>
+            <outline type="rss" text="The Berkeley Artificial Intelligence Research Blog" title="The Berkeley Artificial Intelligence Research Blog" xmlUrl="http://bair.berkeley.edu/blog/feed.xml" htmlUrl="http://bair.berkeley.edu/blog/"/>
+            <outline type="rss" text="El Sensor de la IA: El uso de la IA se dispara y sus altas facturas ponen a prueba la rentabilidad empresarial" title="El Sensor de la IA: El uso de la IA se dispara y sus altas facturas ponen a prueba la rentabilidad empresarial" xmlUrl="https://ideas.pwc.es/feed/" htmlUrl="https://ideas.pwc.es/"/>
+            <outline type="rss" text="TorrentFreak" title="TorrentFreak" xmlUrl="http://feeds.feedburner.com/Torrentfreak" htmlUrl="https://torrentfreak.com/"/>
+            <outline type="rss" text="Deep Tech" title="Deep Tech" xmlUrl="http://news.cnet.com/8300-30685_3-264.xml" htmlUrl="https://www.cnet.com"/>
+            <outline type="rss" text="Recent Questions - Artificial Intelligence Stack Exchange" title="Recent Questions - Artificial Intelligence Stack Exchange" xmlUrl="https://ai.stackexchange.com/feeds" htmlUrl="https://ai.stackexchange.com/questions"/>
+            <outline type="rss" text="iBrandStudio" title="iBrandStudio" xmlUrl="http://feeds.feedburner.com/IBrandStudio" htmlUrl="https://ibrandstudio.com/"/>
+            <outline type="rss" text="Google Developers Blog" title="Google Developers Blog" xmlUrl="http://googlecode.blogspot.com/feeds/posts/default" htmlUrl="https://developers.googleblog.com/rss/"/>
+            <outline type="rss" text="Microsoft 365 Developer Blog" title="Microsoft 365 Developer Blog" xmlUrl="https://developer.microsoft.com/en-us/graph/blogs/feed/" htmlUrl="https://devblogs.microsoft.com/microsoft365dev/"/>
+            <outline type="rss" text="Planet Python" title="Planet Python" xmlUrl="http://planet.python.org/rss10.xml" htmlUrl="http://planetpython.org/"/>
+            <outline type="rss" text="Slashdot: Linux" title="Slashdot: Linux" xmlUrl="http://rss.slashdot.org/Slashdot/slashdotLinux" htmlUrl="https://linux.slashdot.org/"/>
+            <outline type="rss" text="Artificial Intelligence (AI) | TechCrunch" title="Artificial Intelligence (AI) | TechCrunch" xmlUrl="https://techcrunch.com/tag/artificial-intelligence/feed/" htmlUrl="https://techcrunch.com/tag/artificial-intelligence/"/>
+            <outline type="rss" text="inspirationfeed.com" title="inspirationfeed.com" xmlUrl="http://inspirationfeed.com/feed/" htmlUrl="https://inspirationfeed.com/"/>
+            <outline type="rss" text="r/OpenAI" title="r/OpenAI" xmlUrl="https://api.reddit.com/subreddit/OpenAI" htmlUrl="https://www.reddit.com/r/OpenAI/new"/>
+            <outline type="rss" text="Artificial Intelligence Archives - TechRepublic" title="Artificial Intelligence Archives - TechRepublic" xmlUrl="http://www.techrepublic.com/rssfeeds/topic/artificial-intelligence/" htmlUrl="https://www.techrepublic.com/topic/artificial-intelligence/"/>
+            <outline type="rss" text="OpenAI status" title="OpenAI status" xmlUrl="https://status.openai.com/history.rss" htmlUrl="https://status.openai.com/"/>
+            <outline type="rss" text="The Harvard Library Innovation Lab" title="The Harvard Library Innovation Lab" xmlUrl="http://librarylab.law.harvard.edu/blog/feed/" htmlUrl="https://lil.law.harvard.edu/blog/"/>
+            <outline type="rss" text="Microsoft Archives - TechRepublic" title="Microsoft Archives - TechRepublic" xmlUrl="http://www.techrepublic.com/rssfeeds/topic/microsoft/" htmlUrl="https://www.techrepublic.com/topic/microsoft/"/>
+            <outline type="rss" text="VentureBeat" title="VentureBeat" xmlUrl="http://venturebeat.com/feed/" htmlUrl="https://venturebeat.com/feed/"/>
+            <outline type="rss" text="Linux Journal - The Original Magazine of the Linux Community" title="Linux Journal - The Original Magazine of the Linux Community" xmlUrl="http://www.linuxjournal.com/node/feed" htmlUrl="https://www.linuxjournal.com/"/>
+            <outline type="rss" text="BetaNews" title="BetaNews" xmlUrl="http://www.betanews.com/rss2" htmlUrl="https://betanews.com"/>
+            <outline type="rss" text="Anthropic Research" title="Anthropic Research" xmlUrl="https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_research.xml" htmlUrl="https://www.anthropic.com/research"/>
+            <outline type="rss" text="Technowize" title="Technowize" xmlUrl="https://www.technowize.com/feed/" htmlUrl="https://www.technowize.com/"/>
+            <outline type="rss" text="Artificial intelligence – MIT Technology Review" title="Artificial intelligence – MIT Technology Review" xmlUrl="https://www.technologyreview.com/topic/artificial-intelligence/feed" htmlUrl="https://www.technologyreview.com"/>
+            <outline type="rss" text="iProUp.com - Últimas noticias y videos sobre tecnología, Inteligencia Artificial, realidad aumentada, realidad virtual, experiencias inmersivas, economía del conocimiento e industria 4.0 - Innovación" title="iProUp.com - Últimas noticias y videos sobre tecnología, Inteligencia Artificial, realidad aumentada, realidad virtual, experiencias inmersivas, economía del conocimiento e industria 4.0 - Innovación" xmlUrl="https://www.iproup.com/rss/innovacion" htmlUrl="https://www.iproup.com"/>
+            <outline type="rss" text="Ubuntu - news, usn" title="Ubuntu - news, usn" xmlUrl="http://www.ubuntu.com/rss.xml" htmlUrl="https://ubuntu.com//blog/feed"/>
+            <outline type="rss" text="Nettuts+" title="Nettuts+" xmlUrl="http://feeds.feedburner.com/nettuts" htmlUrl="https://code.tutsplus.com"/>
+            <outline type="rss" text="r/SoftwareEngineering" title="r/SoftwareEngineering" xmlUrl="https://api.reddit.com/subreddit/SoftwareEngineering" htmlUrl="https://www.reddit.com/r/SoftwareEngineering/new"/>
+            <outline type="rss" text="&quot;anthropic&quot; - Google News" title="&quot;anthropic&quot; - Google News" xmlUrl="https://news.google.com/news/rss/search/section/q/anthropic/anthropic?ned=us" htmlUrl="https://news.google.com/search?hl=en-US&amp;gl=US&amp;ceid=US:en&amp;q=anthropic"/>
+            <outline type="rss" text="Partnership on AI" title="Partnership on AI" xmlUrl="http://www.partnershiponai.org/feed/" htmlUrl="https://partnershiponai.org/"/>
+            <outline type="rss" text="Sutter’s Mill" title="Sutter’s Mill" xmlUrl="http://herbsutter.com/feed/" htmlUrl="https://herbsutter.com"/>
+            <outline type="rss" text="MIT Technology Review" title="MIT Technology Review" xmlUrl="http://www.technologyreview.com/rss/rss.aspx" htmlUrl="https://www.technologyreview.com"/>
+            <outline type="rss" text="IEEE Spectrum" title="IEEE Spectrum" xmlUrl="https://spectrum.ieee.org/rss/robotics/artificial-intelligence" htmlUrl="https://spectrum.ieee.org/"/>
+            <outline type="rss" text="Webmonkey" title="Webmonkey" xmlUrl="http://www.webmonkey.com/feed/" htmlUrl="https://www.webmonkey.com"/>
+            <outline type="rss" text="Techmeme" title="Techmeme" xmlUrl="https://www.techmeme.com/feed.xml" htmlUrl="https://www.techmeme.com/"/>
+            <outline type="rss" text="ZDNet" title="ZDNet" xmlUrl="http://blogs.zdnet.com/BTL/wp-rss2.php" htmlUrl="https://www.zdnet.com"/>
+            <outline type="rss" text="Artificial Intelligence for Games" title="Artificial Intelligence for Games" xmlUrl="http://www.reddit.com/r/gameai/.rss" htmlUrl="https://www.reddit.com/r/gameai/"/>
+            <outline type="rss" text="LWN.net" title="LWN.net" xmlUrl="http://lwn.net/headlines/newrss" htmlUrl="https://lwn.net"/>
+            <outline type="rss" text="The Unofficial Google Data Science Blog" title="The Unofficial Google Data Science Blog" xmlUrl="http://www.unofficialgoogledatascience.com/feeds/posts/default" htmlUrl="https://www.unofficialgoogledatascience.com/"/>
+            <outline type="rss" text="GeekWire" title="GeekWire" xmlUrl="http://feeds.feedburner.com/geekwire" htmlUrl="https://www.geekwire.com/"/>
+            <outline type="rss" text="O'Reilly Radar" title="O'Reilly Radar" xmlUrl="http://feeds.feedburner.com/oreilly/radar/atom" htmlUrl="https://www.oreilly.com/radar"/>
+            <outline type="rss" text="Data Science" title="Data Science" xmlUrl="https://feedly.com/f/alert/c4a40958-86b8-46e4-8aa0-7793eee2f9a9"/>
+            <outline type="rss" text="Gizmodo" title="Gizmodo" xmlUrl="http://feeds.gawker.com/gizmodo/full" htmlUrl="https://gizmodo.com/"/>
+            <outline type="rss" text="Sam Altman" title="Sam Altman" xmlUrl="http://blog.samaltman.com/posts.atom" htmlUrl="https://blog.samaltman.com"/>
+            <outline type="rss" text="TorrentFreak" title="TorrentFreak" xmlUrl="http://feed.torrentfreak.com/Torrentfreak/" htmlUrl="https://torrentfreak.com/"/>
+            <outline type="rss" text="9to5Google" title="9to5Google" xmlUrl="http://9to5google.com/feed/" htmlUrl="https://9to5google.com/"/>
+            <outline type="rss" text="You’ve Been Haacked" title="You’ve Been Haacked" xmlUrl="http://feeds.haacked.com/haacked/" htmlUrl="https://haacked.com/"/>
+            <outline type="rss" text="Tomasz Tunguz" title="Tomasz Tunguz" xmlUrl="http://tomtunguz.com/index.xml" htmlUrl="https://tomtunguz.com/"/>
+            <outline type="rss" text="COOL HUNTING®" title="COOL HUNTING®" xmlUrl="http://www.coolhunting.com/atom.xml" htmlUrl="https://coolhunting.com"/>
+            <outline type="rss" text="Google for Developers" title="Google for Developers" xmlUrl="https://developers.google.com/live/chrome/feed/rss" htmlUrl="https://www.youtube.com/channel/UC_x5XG1OV2P6uZZ5FSM9Ttw"/>
+            <outline type="rss" text="Python" title="Python" xmlUrl="https://feedly.com/f/alert/7b3a8b31-780d-4ff4-a7a7-c732b77d793a"/>
+            <outline type="rss" text="Anthropic" title="Anthropic" xmlUrl="https://www.youtube.com/feeds/videos.xml?channel_id=UCrDwWp7EBBv4NwvScIpBDOA" htmlUrl="https://www.youtube.com/channel/UCrDwWp7EBBv4NwvScIpBDOA"/>
+            <outline type="rss" text="OpenAI Developers" title="OpenAI Developers" xmlUrl="https://developers.openai.com/rss.xml" htmlUrl="https://developers.openai.com/"/>
+            <outline type="rss" text="Orphicpixel" title="Orphicpixel" xmlUrl="http://www.orphicpixel.com/feed/" htmlUrl="https://www.orphicpixel.com"/>
+            <outline type="rss" text="Free jQuery Plugins" title="Free jQuery Plugins" xmlUrl="http://feeds.feedburner.com/jquery-script" htmlUrl="https://www.jqueryscript.net/"/>
+            <outline type="rss" text="Artificial Intelligence Feed" title="Artificial Intelligence Feed" xmlUrl="https://www.nasdaq.com/feed/rssoutbound?category=Artificial+Intelligence" htmlUrl="https://www.nasdaq.com/feed/rssoutbound"/>
+            <outline type="rss" text="BBC News | Technology | UK Edition" title="BBC News | Technology | UK Edition" xmlUrl="http://newsrss.bbc.co.uk/rss/newsonline_uk_edition/technology/rss.xml" htmlUrl="https://www.bbc.co.uk/news/technology"/>
+            <outline type="rss" text="Data Science" title="Data Science" xmlUrl="https://feedly.com/f/alert/8c2abf39-21bc-440e-b238-5331294a4db8"/>
+            <outline type="rss" text="Anthropic News" title="Anthropic News" xmlUrl="https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_news.xml" htmlUrl="https://www.anthropic.com/news"/>
+            <outline type="rss" text="Computerworld" title="Computerworld" xmlUrl="http://feeds.computerworld.com/Computerworld/News" htmlUrl="https://www.computerworld.com"/>
+            <outline type="rss" text="Inteligencia Artificial en Educación" title="Inteligencia Artificial en Educación" xmlUrl="http://historia1imagen.cl/feed/" htmlUrl="https://historia1imagen.cl"/>
+            <outline type="rss" text="Top posts on r/Anthropic" title="Top posts on r/Anthropic" xmlUrl="https://api.reddit.com/subreddit/Anthropic;top" htmlUrl="https://www.reddit.com/r/Anthropic/top?t=day"/>
+            <outline type="rss" text="Analytics Vidhya " title="Analytics Vidhya " xmlUrl="http://feeds.feedburner.com/AnalyticsVidhya" htmlUrl="https://www.analyticsvidhya.com/"/>
+            <outline type="rss" text="&quot;open ai&quot; - Google News" title="&quot;open ai&quot; - Google News" xmlUrl="https://news.google.com/news/rss/search/section/q/open%20ai/open%20ai?ned=us" htmlUrl="https://news.google.com/search?hl=en-US&amp;gl=US&amp;ceid=US:en&amp;q=open+ai"/>
+            <outline type="rss" text="Gemini" title="Gemini" xmlUrl="https://blog.google/products/gemini/rss/" htmlUrl="https://blog.google/products-and-platforms/products/gemini/"/>
+            <outline type="rss" text="Inteligencia Artificial | WWWhat's new" title="Inteligencia Artificial | WWWhat's new" xmlUrl="https://wwwhatsnew.com/category/inteligencia-artificial/feed/" htmlUrl="https://wwwhatsnew.com"/>
+            <outline type="rss" text="Lifehacker" title="Lifehacker" xmlUrl="http://lifehacker.com/index.xml" htmlUrl="https://lifehacker.com/feed/rss"/>
+            <outline type="rss" text="Visual Studio Blog" title="Visual Studio Blog" xmlUrl="http://blogs.msdn.com/b/visualstudio/rss.aspx" htmlUrl="https://devblogs.microsoft.com/visualstudio/"/>
+            <outline type="rss" text="&quot;&quot;artificial intelligence&quot;&quot; - Google News" title="&quot;&quot;artificial intelligence&quot;&quot; - Google News" xmlUrl="https://news.google.com/news/rss/search/section/q/%22artificial%20intelligence%22/%22artificial%20intelligence%22?ned=us" htmlUrl="https://news.google.com/search?hl=en-US&amp;gl=US&amp;ceid=US:en&amp;q=%22artificial+intelligence%22"/>
+            <outline type="rss" text="NPR Topics: Pop Culture" title="NPR Topics: Pop Culture" xmlUrl="http://www.npr.org/rss/rss.php?id=1048" htmlUrl="https://www.npr.org/templates/story/story.php?storyId=1048"/>
+            <outline type="rss" text="Machine Learning" title="Machine Learning" xmlUrl="https://feedly.com/f/alert/0da096d2-1d51-406e-8691-10d7bc673df0"/>
+            <outline type="rss" text="World Wide Web Consortium - Web Standards" title="World Wide Web Consortium - Web Standards" xmlUrl="http://www.w3.org/2000/08/w3c-synd/home.rss" htmlUrl="https://www.w3.org/news/"/>
+            <outline type="rss" text="One Useful Thing" title="One Useful Thing" xmlUrl="https://oneusefulthing.substack.com/feed" htmlUrl="https://www.oneusefulthing.org"/>
+            <outline type="rss" text="The Official Google Blog" title="The Official Google Blog" xmlUrl="http://googleblog.blogspot.com/atom.xml" htmlUrl="https://blog.google/"/>
+            <outline type="rss" text="CFPs on Artificial Intelligence : WikiCFP" title="CFPs on Artificial Intelligence : WikiCFP" xmlUrl="http://www.wikicfp.com/cfp/rss?cat=artificial%20intelligence" htmlUrl="http://www.wikicfp.com/cfp/call?conference=artificial%20intelligence"/>
+            <outline type="rss" text="Digital Trends" title="Digital Trends" xmlUrl="http://www.digitaltrends.com/feed/" htmlUrl="https://www.digitaltrends.com/"/>
+            <outline type="rss" text="MakeUseOf.com" title="MakeUseOf.com" xmlUrl="http://feeds.feedburner.com/Makeuseof" htmlUrl="https://www.makeuseof.com"/>
+            <outline type="rss" text="The TensorFlow Blog" title="The TensorFlow Blog" xmlUrl="https://blog.tensorflow.org/feeds/posts/default" htmlUrl="https://blog.tensorflow.org/"/>
+            <outline type="rss" text="Business" title="Business" xmlUrl="http://www.huffingtonpost.com/feeds/verticals/business/index.xml" htmlUrl="https://www.huffpost.com/impact/business"/>
+            <outline type="rss" text="Futurism" title="Futurism" xmlUrl="http://www.fromquarkstoquasars.com/feed/" htmlUrl="https://futurism.com"/>
+            <outline type="rss" text="AI News" title="AI News" xmlUrl="https://www.artificialintelligence-news.com/feed/" htmlUrl="https://www.artificialintelligence-news.com/"/>
+            <outline type="rss" text="Supervised" title="Supervised" xmlUrl="https://www.supervised.news/feed" htmlUrl="https://www.supervised.news"/>
+            <outline type="rss" text="PHPDeveloper.org" title="PHPDeveloper.org" xmlUrl="http://phpdeveloper.org/phpdev.rdf" htmlUrl="http://www.phpdeveloper.org"/>
+            <outline type="rss" text="Artificial Intelligence (AI)" title="Artificial Intelligence (AI)" xmlUrl="http://www.reddit.com/r/artificial/.rss" htmlUrl="https://www.reddit.com/r/artificial/"/>
+            <outline type="rss" text="Android Phone Fans" title="Android Phone Fans" xmlUrl="http://phandroid.com/feed/" htmlUrl="https://phandroid.com/"/>
+            <outline type="rss" text="Statistical Modeling, Causal Inference, and Social Science" title="Statistical Modeling, Causal Inference, and Social Science" xmlUrl="http://www.stat.columbia.edu/~cook/movabletype/mlm/atom.xml" htmlUrl="https://statmodeling.stat.columbia.edu"/>
+            <outline type="rss" text="Understanding AI" title="Understanding AI" xmlUrl="https://www.understandingai.org/feed" htmlUrl="https://www.understandingai.org"/>
+            <outline type="rss" text="Artificial Intelligence" title="Artificial Intelligence" xmlUrl="https://aws.amazon.com/blogs/amazon-ai/feed/" htmlUrl="https://aws.amazon.com/blogs/machine-learning/"/>
+        </outline>
+        <outline text="Java" title="Java"/>
+        <outline text="Web" title="Web"/>
+        <outline text="Joomla" title="Joomla"/>
+        <outline text="iPhone" title="iPhone"/>
+        <outline text="php" title="php"/>
+        <outline text="videotutoriales" title="videotutoriales"/>
+        <outline text="SQL" title="SQL"/>
+        <outline text="Mozilla" title="Mozilla"/>
+        <outline text="00. Cultura" title="00. Cultura">
+            <outline type="rss" text="The Marginalian" title="The Marginalian" xmlUrl="http://feedproxy.google.com/brainpickings/rss" htmlUrl="https://www.themarginalian.org"/>
+            <outline type="rss" text="The New York Review of Books" title="The New York Review of Books" xmlUrl="http://feeds.feedburner.com/nybooks" htmlUrl="https://www.nybooks.com"/>
+            <outline type="rss" text="London Review of Books" title="London Review of Books" xmlUrl="http://www.lrb.co.uk/homerss.xml" htmlUrl="https://www.lrb.co.uk/"/>
+            <outline type="rss" text="The History Blog" title="The History Blog" xmlUrl="http://www.thehistoryblog.com/feed" htmlUrl="http://www.thehistoryblog.com"/>
+        </outline>
+        <outline text="Web Design" title="Web Design"/>
+        <outline text="Programacion" title="Programacion"/>
+        <outline text="00. Educación" title="00. Educación">
+            <outline type="rss" text="NPR Topics: Education" title="NPR Topics: Education" xmlUrl="http://www.npr.org/rss/rss.php?id=1013" htmlUrl="https://www.npr.org/templates/story/story.php?storyId=1013"/>
+            <outline type="rss" text="C++" title="C++" xmlUrl="https://feedly.com/f/alert/a36d73d8-6ff7-4310-bb9a-08bab764bd46"/>
+        </outline>
+        <outline text="MySQL" title="MySQL"/>
+        <outline text="Web-2.0" title="Web-2.0"/>
+        <outline text="Web Development" title="Web Development"/>
+        <outline text="Second Life" title="Second Life"/>
+        <outline text="Lifehacker" title="Lifehacker"/>
+        <outline text="Linux" title="Linux"/>
+        <outline text="Technology" title="Technology"/>
+        <outline text="00. Open Source" title="00. Open Source">
+            <outline type="rss" text="OMG! Ubuntu!" title="OMG! Ubuntu!" xmlUrl="http://feeds.feedburner.com/d0od" htmlUrl="https://www.omgubuntu.co.uk/"/>
+            <outline type="rss" text="r/LanguageTechnology" title="r/LanguageTechnology" xmlUrl="https://api.reddit.com/subreddit/LanguageTechnology" htmlUrl="https://www.reddit.com/r/LanguageTechnology/new"/>
+            <outline type="rss" text="Open Culture" title="Open Culture" xmlUrl="http://feeds.feedburner.com/OpenCulture" htmlUrl="https://www.openculture.com/"/>
+            <outline type="rss" text="Top posts on r/rust" title="Top posts on r/rust" xmlUrl="https://api.reddit.com/subreddit/rust;top" htmlUrl="https://www.reddit.com/r/rust/top?t=day"/>
+            <outline type="rss" text="Microsoft Open Source Blog" title="Microsoft Open Source Blog" xmlUrl="http://open.microsoft.com/feed/" htmlUrl="https://opensource.microsoft.com/blog/"/>
+            <outline type="rss" text="microsoft - Ars Technica" title="microsoft - Ars Technica" xmlUrl="http://feeds.arstechnica.com/arstechnica/microsoft/" htmlUrl="https://arstechnica.com"/>
+            <outline type="rss" text="Ubuntu - news, usn" title="Ubuntu - news, usn" xmlUrl="http://www.ubuntu.com/rss.xml" htmlUrl="https://ubuntu.com//blog/feed"/>
+            <outline type="rss" text="visual studio code" title="visual studio code" xmlUrl="https://news.google.com/news/rss/search/section/q/visual%20studio%20code/visual%20studio%20code?ned=undefined&amp;gl=US&amp;hl=en" htmlUrl="https://news.google.com/search?hl=en-US&amp;gl=US&amp;ceid=US:en&amp;q=visual+studio+code"/>
+            <outline type="rss" text="tensorflow" title="tensorflow" xmlUrl="http://news.google.com/news?hl=en&amp;gl=us&amp;q=tensorflow&amp;um=1&amp;ie=UTF-8&amp;output=rss" htmlUrl="https://news.google.com/search?hl=en-US&amp;gl=US&amp;ceid=US:en&amp;q=tensorflow"/>
+            <outline type="rss" text="Communications of the ACM - Artificial Intelligence " title="Communications of the ACM - Artificial Intelligence " xmlUrl="http://cacm.acm.org/browse-by-subject/artificial-intelligence.rss" htmlUrl="https://cacm.acm.org/news?subject=1"/>
+            <outline type="rss" text="The Official Microsoft Blog" title="The Official Microsoft Blog" xmlUrl="http://blogs.microsoft.com/feed/" htmlUrl="https://blogs.microsoft.com/"/>
+            <outline type="rss" text="MIT News - Computer Science and Artificial Intelligence Laboratory " title="MIT News - Computer Science and Artificial Intelligence Laboratory " xmlUrl="http://web.mit.edu/newsoffice/topic/mitcomputers-rss.xml" htmlUrl="https://www.csail.mit.edu/"/>
+            <outline type="rss" text="- Archives Page 1 | NVIDIA Blog" title="- Archives Page 1 | NVIDIA Blog" xmlUrl="https://blogs.nvidia.com/blog/category/deep-learning/feed/" htmlUrl="https://blogs.nvidia.com/blog/category/enterprise/deep-learning/"/>
+            <outline type="rss" text="Google Search Central Blog" title="Google Search Central Blog" xmlUrl="http://googlewebmastercentral.blogspot.com/atom.xml" htmlUrl="https://developers.google.com/search/blog/"/>
+            <outline type="rss" text="Google Open Source Blog" title="Google Open Source Blog" xmlUrl="http://google-opensource.blogspot.com/feeds/posts/default" htmlUrl="http://opensource.googleblog.com/"/>
+            <outline type="rss" text="OpenAI " title="OpenAI " xmlUrl="https://blog.openai.com/rss/" htmlUrl="https://blog.openai.com"/>
+            <outline type="rss" text="DeepMind " title="DeepMind " xmlUrl="https://deepmind.com/blog/feed/basic/" htmlUrl="https://deepmind.google/blog/"/>
+            <outline type="rss" text="Open Source" title="Open Source" xmlUrl="http://blogs.zdnet.com/open-source/wp-rss2.php" htmlUrl="https://www.zdnet.com"/>
+            <outline type="rss" text="ScienceDaily - Artificial Intelligence" title="ScienceDaily - Artificial Intelligence" xmlUrl="http://www.sciencedaily.com/rss/computers_math/artificial_intelligence.xml" htmlUrl="https://www.sciencedaily.com/news/computers_math/artificial_intelligence/"/>
+        </outline>
+        <outline text="Wordpress" title="Wordpress"/>
+        <outline text="PHP" title="PHP"/>
+        <outline text="Ubuntu" title="Ubuntu"/>
+        <outline text="00. Aging" title="00. Aging"/>
+        <outline text="00. Noticias" title="00. Noticias">
+            <outline type="rss" text="Foreign Affairs" title="Foreign Affairs" xmlUrl="http://www.foreignaffairs.com/rss.xml" htmlUrl="https://www.foreignaffairs.com/"/>
+        </outline>
+        <outline text="Programming" title="Programming"/>
+        <outline text="Senior" title="Senior"/>
+        <outline text="Javascript" title="Javascript"/>
+        <outline type="rss" text="Senior Planet from AARP" title="Senior Planet from AARP" xmlUrl="http://seniorplanet.org/feed/" htmlUrl="https://seniorplanet.org/"/>
+        <outline type="rss" text="Lifehacker" title="Lifehacker" xmlUrl="http://feeds.gawker.com/lifehacker/vip" htmlUrl="https://lifehacker.com/feed/rss"/>
+        <outline type="rss" text="Digital Trends" title="Digital Trends" xmlUrl="http://www.digitaltrends.com/feed/?key=f00edf6a58d2a8740e624dda919cab37" htmlUrl="https://www.digitaltrends.com/"/>
+        <outline type="rss" text="CNET" title="CNET" xmlUrl="http://news.cnet.com/2547-1_3-0-20.xml" htmlUrl="https://www.cnet.com"/>
+        <outline type="rss" text="Wirecutter: Reviews for the Real World" title="Wirecutter: Reviews for the Real World" xmlUrl="http://feeds.feedburner.com/TheWirecutter" htmlUrl="https://www.nytimes.com/wirecutter"/>
+        <outline type="rss" text="SPORTS AGENT BLOG" title="SPORTS AGENT BLOG" xmlUrl="http://www.sportsagentblog.com/feed/" htmlUrl="https://sportsagentblog.com"/>
+        <outline type="rss" text="NYT - Media " title="NYT - Media " xmlUrl="http://www.nytimes.com/services/xml/rss/nyt/MediaandAdvertising.xml" htmlUrl="https://www.nytimes.com/section/business/media"/>
+        <outline type="rss" text="Poynter" title="Poynter" xmlUrl="http://www.poynter.org/feed/" htmlUrl="https://www.poynter.org/"/>
+        <outline type="rss" text="Press Gazette" title="Press Gazette" xmlUrl="http://www.pressgazette.co.uk/rssfeed.xml" htmlUrl="https://pressgazette.co.uk/"/>
+        <outline type="rss" text="Media &amp; Entertainment News | TechCrunch" title="Media &amp; Entertainment News | TechCrunch" xmlUrl="https://techcrunch.com/media-2/feed/" htmlUrl="https://techcrunch.com/category/media-entertainment/"/>
+        <outline type="rss" text="Nieman Lab" title="Nieman Lab" xmlUrl="http://www.niemanlab.org/feed/" htmlUrl="https://www.niemanlab.org"/>
+        <outline type="rss" text="Standard C++" title="Standard C++" xmlUrl="http://isocpp.org/blog/rss" htmlUrl="http://isocpp.org/blog"/>
+        <outline type="rss" text="CppCon" title="CppCon" xmlUrl="http://cppcon.org/feed/" htmlUrl="https://cppcon.org"/>
+        <outline type="rss" text="Andrzej's C++ blog" title="Andrzej's C++ blog" xmlUrl="http://akrzemi1.wordpress.com/feed/" htmlUrl="https://akrzemi1.wordpress.com"/>
+        <outline type="rss" text="Rambling Comments - Len Holgate's blog" title="Rambling Comments - Len Holgate's blog" xmlUrl="http://www.lenholgate.com/index.rdf" htmlUrl="https://lenholgate.com/"/>
+        <outline type="rss" text="Marius Bancila's Blog" title="Marius Bancila's Blog" xmlUrl="http://mariusbancila.ro/blog/feed/" htmlUrl="https://mariusbancila.ro/blog"/>
+        <outline type="rss" text="Awesome C++ Weekly" title="Awesome C++ Weekly" xmlUrl="https://cpp.libhunt.com/newsletter/feed" htmlUrl="https://cpp.libhunt.com/newsletter"/>
+        <outline type="rss" text="Meeting C++ blog" title="Meeting C++ blog" xmlUrl="http://www.meetingcpp.com/blogen.xml" htmlUrl="https://www.meetingcpp.com/"/>
+        <outline type="rss" text="Meeting C++ Blogroll" title="Meeting C++ Blogroll" xmlUrl="http://meetingcpp.com/blogroll.xml" htmlUrl="https://www.meetingcpp.com/"/>
+        <outline type="rss" text="Standard C++ | Articles &amp; Books" title="Standard C++ | Articles &amp; Books" xmlUrl="http://isocpp.org/blog/rss/category/articles-books" htmlUrl="http://isocpp.org/blog"/>
+        <outline type="rss" text="Meeting C++ Feed" title="Meeting C++ Feed" xmlUrl="https://meetingcpp.com/feed.xml" htmlUrl="https://www.meetingcpp.com/"/>
+        <outline type="rss" text="Codingtidbit.com" title="Codingtidbit.com" xmlUrl="https://codingtidbit.com/feed/" htmlUrl="https://codingtidbit.com"/>
+        <outline type="rss" text="C++ Stories" title="C++ Stories" xmlUrl="https://www.cppstories.com/index.xml" htmlUrl="https://www.cppstories.com/"/>
+        <outline type="rss" text="Standard C++ FAQ Revisions" title="Standard C++ FAQ Revisions" xmlUrl="http://isocpp.org/themes/wiki_themes/isocpp/rss/faq-revisions-rss.php" htmlUrl="http://isocpp.org/"/>
+        <outline type="rss" text="Musings on computer systems" title="Musings on computer systems" xmlUrl="https://buttondown.email/nelhage/rss" htmlUrl="https://buttondown.com/nelhage"/>
+        <outline type="rss" text="TechViral" title="TechViral" xmlUrl="http://feeds.feedburner.com/TechViral" htmlUrl="https://techviral.net/"/>
+        <outline type="rss" text="New Atlas: Technology-Innovation-Outdoor News" title="New Atlas: Technology-Innovation-Outdoor News" xmlUrl="http://gizmag.com/xml/" htmlUrl="https://newatlas.com/"/>
+        <outline type="rss" text="WonderHowTo" title="WonderHowTo" xmlUrl="http://www.wonderhowto.com/rss.xml" htmlUrl="https://www.wonderhowto.com/"/>
+        <outline type="rss" text="TED Talks Daily (SD video)" title="TED Talks Daily (SD video)" xmlUrl="http://feeds.feedburner.com/tedtalks_video" htmlUrl="https://www.ted.com/talks"/>
+        <outline type="rss" text="TED Tech" title="TED Tech" xmlUrl="http://feeds.feedburner.com/iTunesPodcastTTTechnology" htmlUrl="http://audiocollective.ted.com"/>
+        <outline type="rss" text="TED Blog" title="TED Blog" xmlUrl="http://feeds.feedburner.com/tedblog" htmlUrl="https://blog.ted.com"/>
+        <outline type="rss" text="Tech | HowStuffWorks" title="Tech | HowStuffWorks" xmlUrl="http://syndication.howstuffworks.com/rss/tech" htmlUrl="https://electronics.howstuffworks.com/tech"/>
+        <outline type="rss" text="Coding Horror" title="Coding Horror" xmlUrl="http://feeds.feedburner.com/codinghorror/" htmlUrl="https://blog.codinghorror.com/"/>
+        <outline type="rss" text="Stack Overflow Blog" title="Stack Overflow Blog" xmlUrl="http://blog.stackoverflow.com/feed/" htmlUrl="https://stackoverflow.blog/"/>
+        <outline type="rss" text="InfoQ" title="InfoQ" xmlUrl="http://www.infoq.com/rss/rss.action" htmlUrl="https://www.infoq.com"/>
+        <outline type="rss" text="freeCodeCamp Programming Tutorials: Python, JavaScript, Git &amp; More" title="freeCodeCamp Programming Tutorials: Python, JavaScript, Git &amp; More" xmlUrl="https://medium.freecodecamp.com/feed" htmlUrl="https://www.freecodecamp.org/news/"/>
+        <outline type="rss" text="software" title="software" xmlUrl="https://feedly.com/f/alert/3ee27752-4017-40cf-acef-dc845b6ad7f6"/>
+        <outline type="rss" text="The latest from GitHub's engineering team - The GitHub Blog" title="The latest from GitHub's engineering team - The GitHub Blog" xmlUrl="http://githubengineering.com/atom.xml" htmlUrl="https://github.blog/engineering/"/>
+        <outline type="rss" text="CodeGuru" title="CodeGuru" xmlUrl="http://www.codeguru.com/icom_includes/feeds/codeguru/rss-all.xml" htmlUrl="https://www.codeguru.com/"/>
+        <outline type="rss" text="DZone.com Feed" title="DZone.com Feed" xmlUrl="http://feeds.dzone.com/dzone/frontpage" htmlUrl="https://dzone.com"/>
+        <outline type="rss" text="V8 JavaScript and WebAssembly language features" title="V8 JavaScript and WebAssembly language features" xmlUrl="https://v8.dev/features.atom" htmlUrl="https://v8.dev/features"/>
+        <outline type="rss" text="Cloud Native Computing Foundation" title="Cloud Native Computing Foundation" xmlUrl="https://www.cncf.io/feed" htmlUrl="https://www.cncf.io"/>
+        <outline type="rss" text="Engineering – Docker" title="Engineering – Docker" xmlUrl="https://blog.docker.com/category/engineering/feed/" htmlUrl="https://www.docker.com"/>
+        <outline type="rss" text="Quantum Computing" title="Quantum Computing" xmlUrl="https://feedly.com/f/alert/5c32087d-d6e8-49d1-a9de-f73e145405e6"/>
+        <outline type="rss" text="Tech" title="Tech" xmlUrl="http://www.huffingtonpost.com/feeds/verticals/technology/index.xml" htmlUrl="https://www.huffpost.com/life/technology"/>
+        <outline type="rss" text="Ivan Čukić" title="Ivan Čukić" xmlUrl="https://cukic.co/feeds/atom.xml" htmlUrl="https://cukic.co"/>
+        <outline type="rss" text="tristanbrindle.com" title="tristanbrindle.com" xmlUrl="https://tristanbrindle.com/feed.xml" htmlUrl="https://tristanbrindle.com/"/>
+        <outline type="rss" text="Standard C++ | Training" title="Standard C++ | Training" xmlUrl="http://isocpp.org/blog/rss/category/training" htmlUrl="http://isocpp.org/blog"/>
+        <outline type="rss" text="POCO C++ Libraries Blog" title="POCO C++ Libraries Blog" xmlUrl="http://pocoproject.org/blog/?feed=rss2" htmlUrl="https://pocoproject.org/blog"/>
+        <outline type="rss" text="CppCon" title="CppCon" xmlUrl="https://www.youtube.com/feeds/videos.xml?channel_id=UCMlGfpWw-RUdWX_JbLCukXg" htmlUrl="https://www.youtube.com/channel/UCMlGfpWw-RUdWX_JbLCukXg"/>
+        <outline type="rss" text="Qt Group" title="Qt Group" xmlUrl="https://www.youtube.com/feeds/videos.xml?channel_id=UCsyT1C1M-QoHQREjsixgayQ" htmlUrl="https://www.youtube.com/channel/UCsyT1C1M-QoHQREjsixgayQ"/>
+        <outline type="rss" text="MYCPLUS" title="MYCPLUS" xmlUrl="http://mycplus.com/feed/" htmlUrl="https://www.mycplus.com"/>
+        <outline type="rss" text="CppCon (uploads) on YouTube" title="CppCon (uploads) on YouTube" xmlUrl="https://www.youtube.com/playlist?list=UUMlGfpWw-RUdWX_JbLCukXg" htmlUrl="https://www.youtube.com/playlist?list=UUMlGfpWw-RUdWX_JbLCukXg"/>
+        <outline type="rss" text="The C++ Alliance" title="The C++ Alliance" xmlUrl="https://cppalliance.org/feed.xml" htmlUrl="http://cppalliance.org/"/>
+        <outline type="rss" text="ScienceDirect Publication: Computer Vision and Image Understanding" title="ScienceDirect Publication: Computer Vision and Image Understanding" xmlUrl="http://rss.sciencedirect.com/publication/science/10773142" htmlUrl="https://www.sciencedirect.com/journal/computer-vision-and-image-understanding"/>
+        <outline type="rss" text="iboB" title="iboB" xmlUrl="http://ibob.github.io/feed.xml" htmlUrl="https://ibob.bg/"/>
+        <outline type="rss" text="MachineLearningMastery.com" title="MachineLearningMastery.com" xmlUrl="http://feeds.feedburner.com/MachineLearningMastery" htmlUrl="https://machinelearningmastery.com/"/>
+        <outline type="rss" text="r/datascience" title="r/datascience" xmlUrl="https://api.reddit.com/subreddit/datascience" htmlUrl="https://www.reddit.com/r/datascience/new"/>
+        <outline type="rss" text="KDnuggets" title="KDnuggets" xmlUrl="http://feeds.feedburner.com/kdnuggets-data-mining-analytics" htmlUrl="https://www.kdnuggets.com"/>
+        <outline type="rss" text="Machine Learning" title="Machine Learning" xmlUrl="http://www.reddit.com/r/MachineLearning/.rss" htmlUrl="https://www.reddit.com/r/MachineLearning/"/>
+        <outline type="rss" text="Data Science Central" title="Data Science Central" xmlUrl="http://www.datasciencecentral.com/profiles/blog/feed?xn_auth=no" htmlUrl="https://www.datasciencecentral.com/"/>
+        <outline type="rss" text="Import AI" title="Import AI" xmlUrl="https://mappingbabel.wordpress.com/feed/" htmlUrl="https://jack-clark.net"/>
+        <outline type="rss" text="Machine Learning Blog | ML@CMU | Carnegie Mellon University" title="Machine Learning Blog | ML@CMU | Carnegie Mellon University" xmlUrl="https://blog.ml.cmu.edu/feed/" htmlUrl="https://blog.ml.cmu.edu"/>
+        <outline type="rss" text="&quot;Gemini&quot; - Google News" title="&quot;Gemini&quot; - Google News" xmlUrl="https://news.google.com/news/rss/search/section/q/Gemini/Gemini?ned=us" htmlUrl="https://news.google.com/search?hl=en-US&amp;gl=US&amp;ceid=US:en&amp;q=Gemini"/>
+        <outline type="rss" text="&quot;Claude&quot; - Google News" title="&quot;Claude&quot; - Google News" xmlUrl="https://news.google.com/news/rss/search/section/q/Claude/Claude?ned=us" htmlUrl="https://news.google.com/search?hl=en-US&amp;gl=US&amp;ceid=US:en&amp;q=Claude"/>
+        <outline type="rss" text="&quot;OpenAI&quot; - Google News" title="&quot;OpenAI&quot; - Google News" xmlUrl="https://news.google.com/news/rss/search/section/q/OpenAI/OpenAI?ned=us" htmlUrl="https://news.google.com/search?hl=en-US&amp;gl=US&amp;ceid=US:en&amp;q=OpenAI"/>
+        <outline type="rss" text="Top posts on r/Gemini" title="Top posts on r/Gemini" xmlUrl="https://api.reddit.com/subreddit/Gemini;top" htmlUrl="https://www.reddit.com/r/Gemini/top?t=day"/>
+        <outline type="rss" text="r/Gemini" title="r/Gemini" xmlUrl="https://api.reddit.com/subreddit/Gemini" htmlUrl="https://www.reddit.com/r/Gemini/new"/>
+        <outline type="rss" text="MIT News - Artificial intelligence" title="MIT News - Artificial intelligence" xmlUrl="http://news.mit.edu/rss/topic/artificial-intelligence2" htmlUrl="https://news.mit.edu/rss/topic/artificial-intelligence2"/>
+        <outline type="rss" text="&quot;google antigravity&quot; - Google News" title="&quot;google antigravity&quot; - Google News" xmlUrl="https://news.google.com/rss/search?hl=en-US&amp;gl=US&amp;ceid=US:en&amp;q=google+antigravity" htmlUrl="https://news.google.com/search?hl=en-US&amp;gl=US&amp;ceid=US:en&amp;q=google+antigravity"/>
+        <outline type="rss" text="L'actualité de Sortiraparis.com en direct" title="L'actualité de Sortiraparis.com en direct" xmlUrl="https://www.sortiraparis.com/es/rss/sortir" htmlUrl="https://www.sortiraparis.com/"/>
+        <outline type="rss" text="Stratechery by Ben Thompson" title="Stratechery by Ben Thompson" xmlUrl="https://stratechery.com/feed/" htmlUrl="https://stratechery.com"/>
+        <outline type="rss" text="Pressenza" title="Pressenza" xmlUrl="https://www.pressenza.com/feed/" htmlUrl="https://www.pressenza.com/"/>
+        <outline type="rss" text="Real Media – The View From Below" title="Real Media – The View From Below" xmlUrl="http://realmedia.press/feed/" htmlUrl="https://realmedia.press/"/>
+        <outline type="rss" text="Inside China" title="Inside China" xmlUrl="https://www.fredgao.com/feed" htmlUrl="https://www.fredgao.com"/>
+    </body>
+</opml>

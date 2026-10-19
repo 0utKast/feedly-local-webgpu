@@ -1118,3 +1118,263 @@ body {
 .btn-primary:hover {
   background-color: #1f2937;
 }
+
+/* ==========================================================================
+   Estilos para Pestañas de Alertas de Búsqueda (Google/Reddit) y Gestor de Fuentes
+   ========================================================================== */
+
+.nav-badge-subtle {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background-color: #eef0f3;
+  padding-block: 1px;
+  padding-inline: 5px;
+  border-radius: 3px;
+  margin-inline-start: auto;
+}
+
+.feeds-header-btns {
+  display: flex;
+  align-items: safe center;
+  gap: 4px;
+}
+
+.modal-medium {
+  inline-size: min(560px, 94dvw);
+}
+
+.modal-large {
+  inline-size: min(880px, 95dvw);
+  max-block-size: 88dvh;
+}
+
+.modal-large[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-block-start: 2px;
+}
+
+.modal-header-right {
+  display: flex;
+  align-items: safe center;
+  gap: 8px;
+}
+
+.modal-tabs {
+  display: flex;
+  border-block-end: 1px solid var(--border-light);
+  background-color: var(--bg-subtle);
+  padding-inline: 14px;
+}
+
+.modal-tab {
+  padding-block: 10px;
+  padding-inline: 14px;
+  border: none;
+  border-block-end: 2px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.modal-tab:hover {
+  color: var(--text-primary);
+}
+
+.modal-tab.active {
+  color: var(--text-primary);
+  border-block-end-color: var(--text-primary);
+}
+
+.form-row-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.select-input {
+  padding-block: 8px;
+  padding-inline: 10px;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background-color: #ffffff;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.quick-chips {
+  display: flex;
+  align-items: safe center;
+  flex-wrap: wrap;
+  flex-wrap: balance;
+  gap: 6px;
+  margin-block-start: 4px;
+}
+
+.chips-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.chip-btn {
+  padding-block: 3px;
+  padding-inline: 8px;
+  border: 1px solid var(--border-light);
+  border-radius: 99px;
+  background-color: var(--bg-subtle);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.chip-btn:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+}
+
+/* Gestor y Limpieza de Fuentes en Lote */
+.manager-toolbar {
+  padding-block: 12px;
+  padding-inline: 18px;
+  border-block-end: 1px solid var(--border-light);
+  background-color: var(--bg-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.manager-filters {
+  display: flex;
+  align-items: safe center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.manager-search {
+  flex: 1 1 240px;
+  padding-block: 6px;
+  padding-inline: 10px;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background-color: #ffffff;
+  font-size: 13px;
+}
+
+.manager-bulk-bar {
+  display: flex;
+  align-items: safe center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.manager-bulk-left {
+  display: flex;
+  align-items: safe center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.btn-danger-outline {
+  padding-block: 6px;
+  padding-inline: 12px;
+  border: 1px solid var(--text-primary);
+  border-radius: 6px;
+  background-color: var(--text-primary);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-danger-outline:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.manager-feeds-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+  padding-block: 8px;
+  padding-inline: 18px;
+  max-block-size: 54dvh;
+}
+
+.manager-item {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1.6fr) 150px 130px auto;
+  align-items: safe center;
+  gap: 10px;
+  padding-block: 8px;
+  padding-inline: 6px;
+  border-block-end: 1px solid #f1f3f5;
+  font-size: 12.5px;
+}
+
+.manager-item:hover {
+  background-color: var(--bg-subtle);
+}
+
+.manager-item-info {
+  min-inline-size: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.manager-item-title-row {
+  display: flex;
+  align-items: safe center;
+  gap: 6px;
+  min-inline-size: 0;
+}
+
+.manager-item-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: clip;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.manager-type-pill {
+  font-size: 10px;
+  padding-block: 1px;
+  padding-inline: 5px;
+  border-radius: 3px;
+  background-color: #eef0f3;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.manager-item-url {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: clip;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.manager-status {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  overflow: clip;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.manager-status.is-error {
+  color: #991b1b;
+  font-weight: 500;
+}

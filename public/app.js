@@ -3,7 +3,7 @@ import { WebGpuCardMediaEngine } from './webgpu-media.js';
 const gpuMedia = new WebGpuCardMediaEngine();
 
 const state = {
-  filter: 'all', // 'all' | 'saved' | 'notes'
+  filter: 'all', // 'all' | 'keywords' | 'saved' | 'notes'
   categoryId: null,
   feedId: null,
   viewTitle: 'Todas las noticias',
@@ -11,11 +11,13 @@ const state = {
   sidebar: {
     categories: [],
     feeds: [],
-    totals: { all: 0, saved: 0 },
-    canUndoCount: 0
+    totals: { all: 0, saved: 0, feedsTotal: 0, feedsWithError: 0 },
+    canUndoCount: 0,
+    syncStatus: { isSyncing: false, completed: 0, total: 0 }
   },
   articles: [],
-  activeArticle: null
+  activeArticle: null,
+  managerSelectedIds: new Set()
 };
 
 // Referencias DOM
@@ -23,6 +25,7 @@ const elAppShell = document.getElementById('app-shell');
 const elGpuBadge = document.getElementById('gpu-badge');
 const elCountAll = document.getElementById('count-all');
 const elCountSaved = document.getElementById('count-saved');
+const elCountFeedsTotal = document.getElementById('count-feeds-total');
 const elCategoriesTree = document.getElementById('categories-tree');
 const elViewTitle = document.getElementById('current-view-title');
 const elViewSubtitle = document.getElementById('current-view-subtitle');
@@ -52,8 +55,20 @@ const elReaderBtnFulltext = document.getElementById('reader-btn-fulltext');
 const elReaderContent = document.getElementById('reader-content');
 const elReaderBtnClose = document.getElementById('reader-btn-close');
 
-// Modales <dialog>
+// Modal Añadir Fuente / Búsqueda por Palabra Clave
 const elAddFeedDialog = document.getElementById('add-feed-dialog');
+const elAddKeywordForm = document.getElementById('add-keyword-form');
+const elInputKwQuery = document.getElementById('input-kw-query');
+const elSelectKwProvider = document.getElementById('select-kw-provider');
+const elInputKwCategory = document.getElementById('input-kw-category');
+const elRedditExtraFields = document.getElementById('reddit-extra-fields');
+const elFieldRedditSub = document.getElementById('field-reddit-sub');
+const elInputKwSubreddit = document.getElementById('input-kw-subreddit');
+const elSelectKwSort = document.getElementById('select-kw-sort');
+const elInputKwTitle = document.getElementById('input-kw-title');
+const elAddKwError = document.getElementById('add-kw-error');
+const elBtnSubmitKw = document.getElementById('btn-submit-kw');
+
 const elAddFeedForm = document.getElementById('add-feed-form');
 const elInputFeedUrl = document.getElementById('input-feed-url');
 const elInputFeedCategory = document.getElementById('input-feed-category');
@@ -62,11 +77,21 @@ const elExistingCategories = document.getElementById('existing-categories');
 const elAddFeedError = document.getElementById('add-feed-error');
 const elBtnSubmitAddFeed = document.getElementById('btn-submit-add-feed');
 
+// Modal Gestor y Limpieza de Fuentes
+const elManageDialog = document.getElementById('manage-feeds-dialog');
+const elManageSummary = document.getElementById('manage-feeds-summary');
+const elManagerSearchInput = document.getElementById('manager-search-input');
+const elManagerCategoryFilter = document.getElementById('manager-category-filter');
+const elManagerStatusFilter = document.getElementById('manager-status-filter');
+const elManagerFeedsList = document.getElementById('manager-feeds-list');
+const elBtnBulkDelete = document.getElementById('btn-bulk-delete');
+const elBulkSelectedCount = document.getElementById('bulk-selected-count');
+
+// Modal Importar OPML
 const elImportOpmlDialog = document.getElementById('import-opml-dialog');
 const elImportOpmlForm = document.getElementById('import-opml-form');
 const elInputOpmlFile = document.getElementById('input-opml-file');
 
-// Formateo de fecha y hora legible ("19 oct 2026, 10:35")
 const dateTimeFormatter = new Intl.DateTimeFormat('es-ES', {
   day: '2-digit',
   month: 'short',
@@ -94,8 +119,10 @@ function escapeHtml(str) {
 }
 
 // ============================================================================
-// Carga de datos y sincronización
+// Carga de datos y seguimiento de sincronización en vivo
 // ============================================================================
+
+let syncPollTimer = null;
 
 async function fetchState() {
   const params = new URLSearchParams();
@@ -114,26 +141,40 @@ async function fetchState() {
   renderSidebar();
   renderTopbar();
   renderCardsGrid();
-}
+  if (elManageDialog.open) {
+    renderFeedManagerList();
+  }
 
-async function triggerSync(feedId = null) {
-  elBtnSync.classList.add('syncing');
-  elSyncLabel.textContent = 'Actualizando...';
-  try {
-    await fetch('/api/sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(feedId ? { feedId } : {})
-    });
-    await fetchState();
-    // Segunda lectura breve por si el extractor og:image en segundo plano completó nuevas portadas
-    setTimeout(() => {
-      fetchState().catch(() => {});
-    }, 3200);
-  } finally {
+  // Si el servidor está sincronizando lotes en segundo plano, hacer polling suave
+  const ss = state.sidebar.syncStatus;
+  if (ss && ss.isSyncing) {
+    elBtnSync.classList.add('syncing');
+    elSyncLabel.textContent = `Sincronizando ${ss.completed}/${ss.total}`;
+    if (!syncPollTimer) {
+      syncPollTimer = setTimeout(() => {
+        syncPollTimer = null;
+        fetchState().catch(() => {});
+      }, 2200);
+    }
+  } else {
     elBtnSync.classList.remove('syncing');
     elSyncLabel.textContent = 'Recargar';
   }
+}
+
+async function triggerSync() {
+  elBtnSync.classList.add('syncing');
+  elSyncLabel.textContent = 'Iniciando...';
+  const payload = {};
+  if (state.feedId) payload.feedId = state.feedId;
+  else if (state.categoryId) payload.categoryId = state.categoryId;
+
+  await fetch('/api/sync', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  await fetchState();
 }
 
 // ============================================================================
@@ -143,24 +184,24 @@ async function triggerSync(feedId = null) {
 function renderSidebar() {
   elCountAll.textContent = state.sidebar.totals.all;
   elCountSaved.textContent = state.sidebar.totals.saved;
+  elCountFeedsTotal.textContent = state.sidebar.totals.feedsTotal || state.sidebar.feeds.length;
 
-  // Resaltar vista superior activa si no hay feed/categoría seleccionada
   document.querySelectorAll('.nav-section .nav-item').forEach((btn) => {
     const view = btn.dataset.view;
     const isActive = !state.feedId && !state.categoryId && state.filter === view;
     btn.classList.toggle('active', isActive);
   });
 
-  // Rellenar datalist de categorías para el modal de añadir feed
   elExistingCategories.innerHTML = state.sidebar.categories
     .map((c) => `<option value="${escapeHtml(c.name)}"></option>`)
     .join('');
 
-  // Construir árbol de Categorías -> Feeds
   const fragment = document.createDocumentFragment();
 
   for (const cat of state.sidebar.categories) {
     const feedsInCat = state.sidebar.feeds.filter((f) => f.category_id === cat.id);
+    if (feedsInCat.length === 0) continue;
+
     const catCount = feedsInCat.reduce((acc, f) => acc + (Number(f.article_count) || 0), 0);
 
     const catBlock = document.createElement('div');
@@ -190,11 +231,11 @@ function renderSidebar() {
       selectBtn.type = 'button';
       selectBtn.className = 'feed-select-btn';
       selectBtn.title = feed.error_msg
-        ? `Error: ${feed.error_msg}`
-        : `${feed.title} (${feed.feed_url})`;
+        ? `⚠ Error: ${feed.error_msg}\n(${feed.feed_url})`
+        : `${feed.title}\n(${feed.feed_url})`;
       selectBtn.innerHTML = `
         <span class="feed-title-text">${escapeHtml(feed.title)}</span>
-        <span class="nav-count">${feed.article_count || 0}</span>
+        <span class="nav-count">${feed.error_msg ? '!' : feed.article_count || 0}</span>
       `;
       selectBtn.addEventListener('click', () => {
         state.feedId = feed.id;
@@ -207,12 +248,10 @@ function renderSidebar() {
       const delBtn = document.createElement('button');
       delBtn.type = 'button';
       delBtn.className = 'btn-delete-feed';
-      delBtn.title = `Eliminar feed «${feed.title}»`;
+      delBtn.title = `Eliminar fuente «${feed.title}» inmediatamente`;
       delBtn.textContent = '×';
       delBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        const confirmed = window.confirm(`¿Eliminar el feed «${feed.title}» y sus noticias no guardadas?`);
-        if (!confirmed) return;
         await fetch(`/api/feeds/${feed.id}`, { method: 'DELETE' });
         if (state.feedId === feed.id) {
           state.feedId = null;
@@ -235,9 +274,7 @@ function renderSidebar() {
 function renderTopbar() {
   elViewTitle.textContent = state.viewTitle;
   const count = state.articles.length;
-  elViewSubtitle.textContent =
-    count === 1 ? '1 noticia' : `${count} noticias`;
-
+  elViewSubtitle.textContent = count === 1 ? '1 noticia' : `${count} noticias mostradas`;
   elBtnUndo.hidden = !(state.sidebar.canUndoCount > 0);
 }
 
@@ -299,8 +336,13 @@ function renderCardsGrid() {
     const metaRow = document.createElement('div');
     metaRow.className = 'card-meta';
     const formattedDate = formatPubDate(article.published_ts || article.pub_date);
+    const originLabel =
+      article.author && article.feed_type === 'keyword_google'
+        ? `${article.feed_title} · ${article.author}`
+        : article.feed_title;
+
     metaRow.innerHTML = `
-      <span class="card-origin" title="${escapeHtml(article.feed_title)}">${escapeHtml(article.feed_title)}</span>
+      <span class="card-origin" title="${escapeHtml(originLabel)}">${escapeHtml(originLabel)}</span>
       <span aria-hidden="true">·</span>
       <a
         href="${escapeHtml(article.link)}"
@@ -311,14 +353,15 @@ function renderCardsGrid() {
       >${escapeHtml(formattedDate)} ↗</a>
     `;
 
-    // 4. Pequeño extracto del contenido debajo (+ vista previa de nota si existe)
+    // 4. Pequeño extracto del contenido debajo
     const bodyWrap = document.createElement('div');
     bodyWrap.className = 'card-body';
 
     const pExcerpt = document.createElement('p');
     pExcerpt.className = 'card-excerpt';
     pExcerpt.textContent =
-      article.excerpt || 'Sin resumen adicional en el feed. Pulsa para abrir el lector o visitar el enlace original.';
+      article.excerpt ||
+      'Sin resumen adicional en el feed. Pulsa para abrir el lector o visitar el enlace original.';
     bodyWrap.appendChild(pExcerpt);
 
     if (hasNote) {
@@ -328,7 +371,7 @@ function renderCardsGrid() {
       bodyWrap.appendChild(noteDiv);
     }
 
-    // 5. Pie de acciones (Leída/Eliminar inmediato, Guardar, Nota)
+    // 5. Pie de acciones
     const footer = document.createElement('footer');
     footer.className = 'card-footer';
 
@@ -337,7 +380,8 @@ function renderCardsGrid() {
     btnRead.className = 'card-action-btn';
     if (isSaved || hasNote) {
       btnRead.textContent = 'Protegida (Guardada)';
-      btnRead.title = 'Esta noticia está guardada o tiene nota, por lo que no se elimina al marcar como leída.';
+      btnRead.title =
+        'Esta noticia está guardada o tiene nota, por lo que no se elimina al marcar como leída.';
     } else {
       btnRead.textContent = '✓ Leída (Eliminar)';
       btnRead.title = 'Marcar como leída y eliminar inmediatamente de la lista';
@@ -383,7 +427,148 @@ function renderCardsGrid() {
 }
 
 // ============================================================================
-// Acciones de Noticias: Eliminación Inmediata al Leer, Deshacer, Guardar y Notas
+// Gestor y Limpieza de Fuentes en Lote (Feed Manager)
+// ============================================================================
+
+function openFeedManager() {
+  state.managerSelectedIds.clear();
+  // Poblar selector de carpetas
+  const currentCatVal = elManagerCategoryFilter.value;
+  elManagerCategoryFilter.innerHTML =
+    `<option value="">Todas las carpetas</option>` +
+    state.sidebar.categories
+      .map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`)
+      .join('');
+  elManagerCategoryFilter.value = currentCatVal;
+
+  renderFeedManagerList();
+  elManageDialog.showModal();
+}
+
+function getFilteredManagerFeeds() {
+  const q = (elManagerSearchInput.value || '').trim().toLowerCase();
+  const catId = elManagerCategoryFilter.value ? Number(elManagerCategoryFilter.value) : null;
+  const status = elManagerStatusFilter.value || 'all';
+
+  return state.sidebar.feeds.filter((f) => {
+    if (catId && f.category_id !== catId) return false;
+    if (status === 'error' && !f.error_msg) return false;
+    if (status === 'empty' && (Number(f.article_count) || 0) > 0) return false;
+    if (status === 'keywords' && !(f.feed_type && f.feed_type.startsWith('keyword_'))) return false;
+    if (q) {
+      const hay = `${f.title} ${f.feed_url} ${f.site_url} ${f.category_name}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function updateBulkSelectionButtons() {
+  const count = state.managerSelectedIds.size;
+  elBulkSelectedCount.textContent = count;
+  elBtnBulkDelete.disabled = count === 0;
+}
+
+function renderFeedManagerList() {
+  const allFeeds = state.sidebar.feeds;
+  const errCount = allFeeds.filter((f) => Boolean(f.error_msg)).length;
+  const filtered = getFilteredManagerFeeds();
+
+  elManageSummary.textContent = `${allFeeds.length} fuentes totales · ${errCount} con error de conexión · Mostrando ${filtered.length}`;
+  updateBulkSelectionButtons();
+
+  const fragment = document.createDocumentFragment();
+
+  for (const feed of filtered) {
+    const row = document.createElement('div');
+    row.className = 'manager-item';
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = state.managerSelectedIds.has(feed.id);
+    checkbox.addEventListener('change', () => {
+      if (checkbox.checked) state.managerSelectedIds.add(feed.id);
+      else state.managerSelectedIds.delete(feed.id);
+      updateBulkSelectionButtons();
+    });
+
+    const typeLabel =
+      feed.feed_type === 'keyword_google'
+        ? 'Google News'
+        : feed.feed_type === 'keyword_reddit'
+        ? 'Reddit Search'
+        : feed.feed_type === 'reddit_sub'
+        ? 'Reddit'
+        : feed.feed_type === 'keyword_hn'
+        ? 'HN Search'
+        : 'RSS';
+
+    const info = document.createElement('div');
+    info.className = 'manager-item-info';
+    info.innerHTML = `
+      <div class="manager-item-title-row">
+        <span class="manager-item-title" title="${escapeHtml(feed.title)}">${escapeHtml(feed.title)}</span>
+        <span class="manager-type-pill">${typeLabel}</span>
+      </div>
+      <span class="manager-item-url" title="${escapeHtml(feed.feed_url)}">${escapeHtml(feed.feed_url)}</span>
+    `;
+
+    // Selector rápido para mover de carpeta
+    const catSelect = document.createElement('select');
+    catSelect.className = 'select-minimal';
+    catSelect.title = 'Cambiar carpeta';
+    catSelect.innerHTML = state.sidebar.categories
+      .map(
+        (c) =>
+          `<option value="${escapeHtml(c.name)}" ${
+            c.id === feed.category_id ? 'selected' : ''
+          }>${escapeHtml(c.name)}</option>`
+      )
+      .join('');
+    catSelect.addEventListener('change', async () => {
+      await fetch(`/api/feeds/${feed.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ categoryName: catSelect.value })
+      });
+      await fetchState();
+    });
+
+    const statusSpan = document.createElement('span');
+    statusSpan.className = 'manager-status' + (feed.error_msg ? ' is-error' : '');
+    statusSpan.title = feed.error_msg || `${feed.article_count || 0} noticias disponibles`;
+    statusSpan.textContent = feed.error_msg
+      ? `⚠ ${feed.error_msg}`
+      : `${feed.article_count || 0} noticias`;
+
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'btn-subtle';
+    delBtn.textContent = 'Eliminar';
+    delBtn.addEventListener('click', async () => {
+      state.managerSelectedIds.delete(feed.id);
+      await fetch(`/api/feeds/${feed.id}`, { method: 'DELETE' });
+      if (state.feedId === feed.id) {
+        state.feedId = null;
+        state.viewTitle = 'Todas las noticias';
+      }
+      await fetchState();
+    });
+
+    row.appendChild(checkbox);
+    row.appendChild(info);
+    row.appendChild(catSelect);
+    row.appendChild(statusSpan);
+    row.appendChild(delBtn);
+
+    fragment.appendChild(row);
+  }
+
+  elManagerFeedsList.replaceChildren(fragment);
+}
+
+// ============================================================================
+// Acciones de Noticias y Lector Lateral
 // ============================================================================
 
 async function markReadAndDelete(articleIds) {
@@ -424,10 +609,6 @@ async function toggleSaveArticle(article, customNote = undefined) {
   await fetchState();
 }
 
-// ============================================================================
-// Cajón Lateral de Lectura (Slide-over Reader)
-// ============================================================================
-
 function openReaderDrawer(article) {
   state.activeArticle = article;
   elReaderFeedTitle.textContent = article.feed_title || '';
@@ -436,7 +617,6 @@ function openReaderDrawer(article) {
   elReaderLinkOriginal.href = article.link;
   elReaderNoteInput.value = article.note || '';
 
-  // Mostrar el HTML del feed de forma segura o el extracto
   if (article.content_html && article.content_html.trim()) {
     elReaderContent.innerHTML = sanitizeFeedHtml(article.content_html);
   } else {
@@ -484,12 +664,10 @@ function sanitizeFeedHtml(rawHtml) {
 // ============================================================================
 
 function bindEvents() {
-  // Alternar barra lateral izquierda
   document.getElementById('btn-toggle-sidebar').addEventListener('click', () => {
     elAppShell.classList.toggle('sidebar-collapsed');
   });
 
-  // Navegación de vistas principales (Todas, Guardadas, Con notas)
   document.querySelectorAll('.nav-section .nav-item').forEach((btn) => {
     btn.addEventListener('click', () => {
       const view = btn.dataset.view;
@@ -501,6 +679,8 @@ function bindEvents() {
           ? 'Noticias guardadas'
           : view === 'notes'
           ? 'Noticias con notas'
+          : view === 'keywords'
+          ? 'Alertas de búsqueda (Google / Reddit / HN)'
           : 'Todas las noticias';
       fetchState();
     });
@@ -525,7 +705,6 @@ function bindEvents() {
     fetchState();
   });
 
-  // Selector de número de tarjetas por fila
   elSelectCols.addEventListener('change', () => {
     const val = elSelectCols.value;
     if (val === 'auto') {
@@ -535,12 +714,10 @@ function bindEvents() {
     }
   });
 
-  // Selector de modo de imagen WebGPU WGSL
   elSelectTone.addEventListener('change', () => {
     gpuMedia.setToneMode(Number(elSelectTone.value));
   });
 
-  // Marcar todas las visibles como leídas (y eliminarlas salvo guardadas)
   elBtnMarkAllRead.addEventListener('click', async () => {
     const deletableIds = state.articles
       .filter((a) => a.is_saved !== 1 && (!a.note || !a.note.trim()))
@@ -549,39 +726,24 @@ function bindEvents() {
     await markReadAndDelete(deletableIds);
   });
 
-  // Botón Deshacer último borrado de leídas
   elBtnUndo.addEventListener('click', async () => {
     const res = await fetch('/api/articles/undo-dismiss', { method: 'POST' });
-    if (res.ok) {
-      await fetchState();
-    }
+    if (res.ok) await fetchState();
   });
 
-  // Botón Recargar
-  elBtnSync.addEventListener('click', () => {
-    triggerSync(state.feedId || null);
-  });
+  elBtnSync.addEventListener('click', () => triggerSync());
 
-  // Controles del Reader Drawer
+  // Reader Drawer
   elReaderBtnClose.addEventListener('click', closeReaderDrawer);
   elReaderBackdrop.addEventListener('click', closeReaderDrawer);
-
   elReaderBtnReadDelete.addEventListener('click', () => {
-    if (state.activeArticle) {
-      markReadAndDelete([state.activeArticle.id]);
-    }
+    if (state.activeArticle) markReadAndDelete([state.activeArticle.id]);
   });
-
   elReaderBtnSave.addEventListener('click', () => {
-    if (state.activeArticle) {
-      toggleSaveArticle(state.activeArticle);
-    }
+    if (state.activeArticle) toggleSaveArticle(state.activeArticle);
   });
-
   elReaderBtnSaveNote.addEventListener('click', () => {
-    if (state.activeArticle) {
-      toggleSaveArticle(state.activeArticle, elReaderNoteInput.value);
-    }
+    if (state.activeArticle) toggleSaveArticle(state.activeArticle, elReaderNoteInput.value);
   });
 
   elReaderBtnFulltext.addEventListener('click', async () => {
@@ -602,27 +764,95 @@ function bindEvents() {
     }
   });
 
-  // Atajo Escape para cerrar panel de lectura
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && elReaderDrawer.classList.contains('open')) {
       closeReaderDrawer();
     }
   });
 
-  // Modal Añadir Feed
+  // Pestañas dentro del modal "+ Añadir Fuente / Alerta"
+  document.querySelectorAll('.modal-tab').forEach((tabBtn) => {
+    tabBtn.addEventListener('click', () => {
+      const target = tabBtn.dataset.tab;
+      document.querySelectorAll('.modal-tab').forEach((b) => b.classList.toggle('active', b === tabBtn));
+      document.querySelectorAll('.tab-panel').forEach((panel) => {
+        panel.hidden = panel.dataset.panel !== target;
+      });
+    });
+  });
+
+  // Chips de sugerencias rápidas ("Inteligencia Artificial", "Gemini", "Claude"...)
+  document.querySelectorAll('.chip-btn').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      elInputKwQuery.value = chip.dataset.kw || '';
+      elInputKwQuery.focus();
+    });
+  });
+
+  // Mostrar/ocultar opciones extra cuando se elige Reddit
+  elSelectKwProvider.addEventListener('change', () => {
+    const val = elSelectKwProvider.value;
+    const isReddit = val === 'reddit_search' || val === 'reddit_subreddit';
+    elRedditExtraFields.hidden = !isReddit;
+    elFieldRedditSub.hidden = val !== 'reddit_search';
+  });
+
   const openAddModal = () => {
+    elAddKwError.hidden = true;
     elAddFeedError.hidden = true;
+    elInputKwQuery.value = '';
+    elInputKwTitle.value = '';
     elInputFeedUrl.value = '';
     elInputFeedTitle.value = '';
     elAddFeedDialog.showModal();
-    elInputFeedUrl.focus();
+    elInputKwQuery.focus();
   };
 
   document.getElementById('btn-open-add-feed').addEventListener('click', openAddModal);
   document.getElementById('btn-add-feed-bottom').addEventListener('click', openAddModal);
   document.getElementById('btn-close-add-feed').addEventListener('click', () => elAddFeedDialog.close());
-  document.getElementById('btn-cancel-add-feed').addEventListener('click', () => elAddFeedDialog.close());
+  document.querySelectorAll('.btn-cancel-add').forEach((btn) => {
+    btn.addEventListener('click', () => elAddFeedDialog.close());
+  });
 
+  // Envío de formulario 1: Búsqueda por Palabra Clave (Google News / Reddit / HN)
+  elAddKeywordForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    elAddKwError.hidden = true;
+    elBtnSubmitKw.disabled = true;
+    elBtnSubmitKw.textContent = 'Creando y buscando noticias...';
+
+    try {
+      const res = await fetch('/api/feeds/keyword', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: elInputKwQuery.value,
+          provider: elSelectKwProvider.value,
+          categoryName: elInputKwCategory.value,
+          subreddit: elInputKwSubreddit.value,
+          sort: elSelectKwSort.value,
+          title: elInputKwTitle.value
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'No se pudo crear la alerta de búsqueda');
+
+      elAddFeedDialog.close();
+      state.feedId = data.feed.id;
+      state.categoryId = null;
+      state.viewTitle = data.feed.title;
+      await fetchState();
+    } catch (err) {
+      elAddKwError.textContent = err.message;
+      elAddKwError.hidden = false;
+    } finally {
+      elBtnSubmitKw.disabled = false;
+      elBtnSubmitKw.textContent = 'Crear fuente de búsqueda';
+    }
+  });
+
+  // Envío de formulario 2: URL de sitio web o RSS tradicional
   elAddFeedForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     elAddFeedError.hidden = true;
@@ -640,9 +870,8 @@ function bindEvents() {
         })
       });
       const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'No se pudo añadir el feed');
-      }
+      if (!res.ok) throw new Error(data.error || 'No se pudo añadir la fuente');
+
       elAddFeedDialog.close();
       state.feedId = data.feed.id;
       state.categoryId = null;
@@ -657,8 +886,56 @@ function bindEvents() {
     }
   });
 
-  // Modal Importar OPML
-  document.getElementById('btn-import-opml').addEventListener('click', () => {
+  // Eventos del Gestor y Limpieza de Fuentes
+  document.getElementById('btn-open-manage-feeds').addEventListener('click', openFeedManager);
+  document.getElementById('btn-manage-feeds-bottom').addEventListener('click', openFeedManager);
+  document.getElementById('btn-close-manage-feeds').addEventListener('click', () => elManageDialog.close());
+  document.getElementById('btn-done-manage-feeds').addEventListener('click', () => elManageDialog.close());
+
+  elManagerSearchInput.addEventListener('input', renderFeedManagerList);
+  elManagerCategoryFilter.addEventListener('change', renderFeedManagerList);
+  elManagerStatusFilter.addEventListener('change', renderFeedManagerList);
+
+  document.getElementById('btn-select-all-visible').addEventListener('click', () => {
+    for (const f of getFilteredManagerFeeds()) {
+      state.managerSelectedIds.add(f.id);
+    }
+    renderFeedManagerList();
+  });
+
+  document.getElementById('btn-select-all-errors').addEventListener('click', () => {
+    state.managerSelectedIds.clear();
+    for (const f of state.sidebar.feeds) {
+      if (f.error_msg) state.managerSelectedIds.add(f.id);
+    }
+    elManagerStatusFilter.value = 'error';
+    renderFeedManagerList();
+  });
+
+  document.getElementById('btn-deselect-all').addEventListener('click', () => {
+    state.managerSelectedIds.clear();
+    renderFeedManagerList();
+  });
+
+  elBtnBulkDelete.addEventListener('click', async () => {
+    const ids = Array.from(state.managerSelectedIds);
+    if (ids.length === 0) return;
+    elBtnBulkDelete.disabled = true;
+    await fetch('/api/feeds/bulk-delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ feedIds: ids })
+    });
+    state.managerSelectedIds.clear();
+    if (state.feedId && ids.includes(state.feedId)) {
+      state.feedId = null;
+      state.viewTitle = 'Todas las noticias';
+    }
+    await fetchState();
+  });
+
+  // Modal Importar OPML adicional
+  document.getElementById('btn-open-opml-from-manager').addEventListener('click', () => {
     elInputOpmlFile.value = '';
     elImportOpmlDialog.showModal();
   });
@@ -678,13 +955,12 @@ function bindEvents() {
     if (res.ok) {
       elImportOpmlDialog.close();
       await fetchState();
-      triggerSync();
     }
   });
 }
 
 // ============================================================================
-// Arranque de la Aplicación
+// Arranque
 // ============================================================================
 
 async function bootstrap() {
@@ -698,9 +974,6 @@ async function bootstrap() {
   }
 
   await fetchState();
-  if (state.articles.length === 0) {
-    await triggerSync();
-  }
 }
 
 bootstrap();
