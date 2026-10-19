@@ -82,17 +82,34 @@ db.exec(`
   );
 `);
 
-// Asegurar columna feed_type si la tabla venía de la versión previa
 try {
   db.exec(`ALTER TABLE feeds ADD COLUMN feed_type TEXT DEFAULT 'rss';`);
-} catch {
-  // Ya existe
-}
+} catch {}
+
+// Corregir timestamps artificiales de feeds sin fecha (<pubDate> ausente tenía milisegundos != 0 por Date.now())
+// para que no acaparen la portada por delante de las noticias con fecha real
+db.exec(`
+  UPDATE articles
+  SET published_ts = published_ts - (36 * 3600 * 1000) - (id * 45000)
+  WHERE (published_ts % 1000) != 0 AND published_ts > (strftime('%s','now') * 1000 - 12 * 3600 * 1000);
+`);
+
+// Limpiar marcas 'none' antiguas para que el nuevo motor de imágenes contextuales pueda resolverlas
+db.exec(`UPDATE articles SET image_url = '' WHERE image_url = 'none';`);
+
+// Si varios artículos compartían exactamente el mismo logo genérico de una web, dejarlo solo en el primero
+db.exec(`
+  UPDATE articles
+  SET image_url = ''
+  WHERE image_url != ''
+    AND id NOT IN (
+      SELECT MIN(id) FROM articles WHERE image_url != '' GROUP BY image_url
+    );
+`);
 
 const recentDismissedBatches = [];
 const MAX_UNDO_BATCHES = 15;
 
-// Estado global de sincronización en segundo plano
 const syncStatus = {
   isSyncing: false,
   completed: 0,
@@ -118,7 +135,7 @@ function cleanupEmptyCategories() {
 }
 
 // ============================================================================
-// Decodificación HTML, Limpieza y Normalización de URLs de Feedly (Google, Reddit, Alertas)
+// Decodificación HTML, Limpieza y Normalización de URLs de Feedly
 // ============================================================================
 
 const HTML_ENTITIES = {
@@ -163,7 +180,6 @@ function decodeHtmlEntities(str) {
   return out;
 }
 
-// Construye URLs de búsqueda por palabras clave estilo Feedly (Google News, Reddit, Hacker News)
 function buildKeywordSearchFeed({ query, provider = 'google_es', subreddit = '', sort = 'new' }) {
   const cleanQuery = String(query || '').trim();
   if (!cleanQuery) throw new Error('Debes indicar al menos una palabra clave.');
@@ -242,13 +258,11 @@ function buildKeywordSearchFeed({ query, provider = 'google_es', subreddit = '',
   throw new Error('Proveedor de búsqueda no reconocido');
 }
 
-// Normaliza URLs propietarias del OPML de Feedly (Alertas, api.reddit.com, Google News antiguos, YouTube)
 function normalizeOpmlFeedUrl(rawXmlUrl, title = '', rawHtmlUrl = '') {
   const xmlUrl = decodeHtmlEntities(rawXmlUrl || '').trim();
   const htmlUrl = decodeHtmlEntities(rawHtmlUrl || '').trim();
   const cleanTitle = decodeHtmlEntities(title || '').trim();
 
-  // 1. Alertas internas de Feedly Cloud (https://feedly.com/f/alert/...) -> Convertir a Google News RSS
   if (/^https?:\/\/feedly\.com\/f\/alert\//i.test(xmlUrl)) {
     const queryTerm = cleanTitle || 'technology';
     return {
@@ -259,7 +273,6 @@ function normalizeOpmlFeedUrl(rawXmlUrl, title = '', rawHtmlUrl = '') {
     };
   }
 
-  // 2. Pseudo-URLs de Reddit en Feedly (https://api.reddit.com/subreddit/Nombre;top)
   const redditApiMatch = xmlUrl.match(/^https?:\/\/api\.reddit\.com\/subreddit\/([^/;?]+)(;top)?/i);
   if (redditApiMatch) {
     const sub = redditApiMatch[1];
@@ -274,7 +287,6 @@ function normalizeOpmlFeedUrl(rawXmlUrl, title = '', rawHtmlUrl = '') {
     };
   }
 
-  // 3. URLs de Reddit antiguas en HTTP sin .rss moderno
   if (/^https?:\/\/(?:www\.)?reddit\.com\/r\/[^/]+\/\.rss/i.test(xmlUrl)) {
     return {
       feedUrl: xmlUrl.replace(/^http:\/\//i, 'https://'),
@@ -284,7 +296,6 @@ function normalizeOpmlFeedUrl(rawXmlUrl, title = '', rawHtmlUrl = '') {
     };
   }
 
-  // 4. URLs antiguas de Google News en OPML de Feedly
   if (xmlUrl.includes('news.google.com/news/rss/search/section/q/') || xmlUrl.includes('news.google.com/news?')) {
     let query = '';
     if (htmlUrl) {
@@ -317,7 +328,6 @@ function normalizeOpmlFeedUrl(rawXmlUrl, title = '', rawHtmlUrl = '') {
     };
   }
 
-  // 5. Listas de reproducción de YouTube puestas como página HTML en lugar de XML feed
   const ytPlaylistMatch = xmlUrl.match(/^https?:\/\/(?:www\.)?youtube\.com\/playlist\?list=([a-zA-Z0-9_-]+)/i);
   if (ytPlaylistMatch && ytPlaylistMatch[1]) {
     return {
@@ -337,7 +347,7 @@ function normalizeOpmlFeedUrl(rawXmlUrl, title = '', rawHtmlUrl = '') {
 }
 
 // ============================================================================
-// Importador OPML Estructurado (Respeta jerarquía de carpetas e ignora vacías)
+// Importador OPML
 // ============================================================================
 
 function parseAttrs(attrString) {
@@ -385,7 +395,6 @@ function importOpmlContent(opmlXml, replaceDefaults = false) {
     const htmlUrl = (attrs.htmlurl || '').trim();
 
     if (xmlUrl) {
-      // Es un feed RSS/Atom
       const categoryName = folderStack.length > 0 ? folderStack[folderStack.length - 1] : 'General';
       insertCat.run(categoryName, catOrder++);
       const catRow = getCat.get(categoryName);
@@ -402,17 +411,14 @@ function importOpmlContent(opmlXml, replaceDefaults = false) {
         if (res.changes > 0) importedFeeds++;
       }
     } else if (!selfClosing && title) {
-      // Es una carpeta contenedora con hijos (<outline text="00. Tecnología"> ... </outline>)
       folderStack.push(title);
     }
-    // Si es <outline text="tutoriales" /> autocerrada y sin xmlUrl, es una categoría vacía: la ignoramos
   }
 
   cleanupEmptyCategories();
   return importedFeeds;
 }
 
-// Auto-importar el archivo OPML del usuario si está en la carpeta del proyecto
 function autoImportWorkspaceOpmlIfNeeded() {
   const alreadyImported = db
     .prepare("SELECT value FROM meta_settings WHERE key = 'workspace_opml_imported'")
@@ -437,21 +443,11 @@ function autoImportWorkspaceOpmlIfNeeded() {
   }
 }
 
-const didAutoImport = autoImportWorkspaceOpmlIfNeeded();
-if (!didAutoImport) {
-  const countRow = db.prepare('SELECT COUNT(*) AS total FROM feeds').get();
-  if (!countRow || countRow.total === 0) {
-    const insertCat = db.prepare('INSERT OR IGNORE INTO categories (name, sort_order) VALUES (?, ?)');
-    insertCat.run('00. Tecnología', 1);
-    const catId = db.prepare('SELECT id FROM categories WHERE name = ?').get('00. Tecnología').id;
-    db.prepare('INSERT OR IGNORE INTO feeds (category_id, title, feed_url, site_url) VALUES (?, ?, ?, ?)')
-      .run(catId, 'Xataka', 'https://www.xataka.com/feedburner.xml', 'https://www.xataka.com');
-  }
-}
+autoImportWorkspaceOpmlIfNeeded();
 rebuildFtsIndex();
 
 // ============================================================================
-// Limpieza de extractos y Parseo RSS / Atom / YouTube / Google News / Reddit
+// Parseo RSS / Atom y Extracción de Imágenes
 // ============================================================================
 
 function stripHtmlToExcerpt(html, maxLength = 260, articleTitle = '') {
@@ -464,14 +460,12 @@ function stripHtmlToExcerpt(html, maxLength = 260, articleTitle = '') {
 
   text = decodeHtmlEntities(text)
     .replace(/<[^>]+>/g, ' ')
-    // Limpiar coletillas típicas de Reddit RSS
     .replace(/submitted by\s+\/u\/\S+\s*\[link\]\s*\[comments\]/gi, '')
     .replace(/\[link\]\s*\[comments\]/gi, '')
     .replace(/\s+/g, ' ')
     .trim();
 
-  // En Google News RSS el description suele repetir el titular exacto seguido del nombre del diario
-  if (articleTitle && text.toLowerCase().startsWith(articleTitle.toLowerCase().slice(0, 40))) {
+  if (articleTitle && text.toLowerCase().startsWith(articleTitle.toLowerCase().slice(0, 35))) {
     const sliced = text.slice(articleTitle.length).replace(/^[\s\-–—·|]+/, '').trim();
     if (sliced.length >= 20) {
       text = sliced;
@@ -484,7 +478,7 @@ function stripHtmlToExcerpt(html, maxLength = 260, articleTitle = '') {
   return text;
 }
 
-function isLikelyTrackingImage(url) {
+function isLikelyTrackingOrGenericLogo(url) {
   if (!url) return true;
   const lower = url.toLowerCase();
   if (lower.startsWith('data:image/gif')) return true;
@@ -497,7 +491,10 @@ function isLikelyTrackingImage(url) {
     lower.includes('/spacer.gif') ||
     lower.includes('statcounter') ||
     lower.includes('gstatic.com/images/branding/product') ||
-    lower.endsWith('.svg')
+    lower.includes('lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw') ||
+    lower.includes('s.yimg.com/uu/api/res/') && lower.includes('16x16') ||
+    lower.endsWith('.svg') ||
+    lower.endsWith('.ico')
   ) {
     return true;
   }
@@ -532,7 +529,6 @@ function extractTagContent(xmlBlock, tagNames) {
 }
 
 function extractImageFromItemXml(itemXml, htmlBody, baseUrl) {
-  // 1. Buscar <media:thumbnail> o <media:content> (YouTube, MRSS, Reddit, etc.)
   const mediaRegex = /<(?:media:thumbnail|media:content)\b([^>]+)>/gi;
   let mMatch;
   while ((mMatch = mediaRegex.exec(itemXml)) !== null) {
@@ -540,11 +536,10 @@ function extractImageFromItemXml(itemXml, htmlBody, baseUrl) {
     const urlMatch = attrs.match(/\burl=["']([^"']+)["']/i);
     if (urlMatch && urlMatch[1]) {
       const candidate = resolveUrl(urlMatch[1], baseUrl);
-      if (!isLikelyTrackingImage(candidate)) return candidate;
+      if (!isLikelyTrackingOrGenericLogo(candidate)) return candidate;
     }
   }
 
-  // 2. Buscar <enclosure url="..." type="image/...">
   const enclosureRegex = /<enclosure\b([^>]+)>/gi;
   let encMatch;
   while ((encMatch = enclosureRegex.exec(itemXml)) !== null) {
@@ -555,19 +550,18 @@ function extractImageFromItemXml(itemXml, htmlBody, baseUrl) {
       const urlVal = resolveUrl(urlMatch[1], baseUrl);
       const isImgType = typeMatch && typeMatch[1].toLowerCase().startsWith('image/');
       const isImgExt = /\.(jpe?g|png|webp|avif)(\?|$)/i.test(urlVal);
-      if ((isImgType || isImgExt) && !isLikelyTrackingImage(urlVal)) {
+      if ((isImgType || isImgExt) && !isLikelyTrackingOrGenericLogo(urlVal)) {
         return urlVal;
       }
     }
   }
 
-  // 3. Buscar primera etiqueta <img src="..."> en el contenido HTML decodificado (Reddit, blogs, etc.)
   const combinedHtml = decodeHtmlEntities(htmlBody || '') + '\n' + decodeHtmlEntities(itemXml);
   const imgRegex = /<img\b[^>]*?\b(?:src|data-src|data-original)=["']([^"']+)["'][^>]*>/gi;
   let imgMatch;
   while ((imgMatch = imgRegex.exec(combinedHtml)) !== null) {
     const candidate = resolveUrl(imgMatch[1], baseUrl);
-    if (!isLikelyTrackingImage(candidate)) {
+    if (!isLikelyTrackingOrGenericLogo(candidate)) {
       return candidate;
     }
   }
@@ -607,6 +601,7 @@ function parseFeedXml(xmlText, feedUrl) {
     : /<item(?:\s[^>]*)?>([\s\S]*?)<\/item>/gi;
 
   let match;
+  let itemIndex = 0;
   while ((match = itemRegex.exec(xmlText)) !== null) {
     const block = match[1];
     const rawTitle = extractTagContent(block, ['title']);
@@ -623,7 +618,7 @@ function parseFeedXml(xmlText, feedUrl) {
     } else {
       const linkTag = extractTagContent(block, ['link', 'guid']);
       if (linkTag && /^https?:\/\//i.test(linkTag.trim())) {
-        link = linkTag.trim();
+        link = resolveUrl(linkTag.trim(), siteUrl);
       } else {
         const hrefMatch = block.match(/<link\b[^>]*href=["']([^"']+)["']/i);
         if (hrefMatch && hrefMatch[1]) link = resolveUrl(hrefMatch[1], siteUrl);
@@ -639,17 +634,22 @@ function parseFeedXml(xmlText, feedUrl) {
       'published',
       'updated',
       'dc:date',
-      'dcterms:issued'
+      'prism:publicationDate',
+      'dcterms:issued',
+      'a10:updated'
     ]);
-    let publishedTs = Date.now();
+
+    // Si el feed no tiene etiqueta de fecha (ej. WikiCFP), situarlo 36h atrás escalonado
+    // para que no adelante a las noticias de última hora con fecha real
+    let publishedTs = Math.floor((Date.now() - 36 * 3600 * 1000 - itemIndex * 60000) / 1000) * 1000;
     if (rawDate) {
       const parsed = Date.parse(rawDate.trim());
       if (!Number.isNaN(parsed)) {
         publishedTs = parsed;
       }
     }
+    itemIndex++;
 
-    // En Google News RSS existe <source url="...">Medio Original</source>
     const sourcePublisher = decodeHtmlEntities(
       extractTagContent(block, ['source']).replace(/<[^>]+>/g, '')
     ).trim();
@@ -691,10 +691,13 @@ function parseFeedXml(xmlText, feedUrl) {
 }
 
 // ============================================================================
-// Red, Autodescubrimiento y Enriquecimiento de Imágenes
+// Motor Inteligente de Obtención de Imágenes (Estilo Feedly):
+// 1. Imagen propia del RSS
+// 2. Scraping og:image / twitter:image de la web original (descartando logos repetidos)
+// 3. Búsqueda automática de fotografía periodística contextual por titular (sin repetir imágenes)
 // ============================================================================
 
-async function fetchWithTimeout(url, options = {}, timeoutMs = 7500) {
+async function fetchWithTimeout(url, options = {}, timeoutMs = 7000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -715,9 +718,203 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 7500) {
   }
 }
 
+// Comprueba si una URL de imagen ya está siendo usada por otro artículo distinto en la base de datos
+function isImageAlreadyUsedByAnotherArticle(imageUrl, currentArticleId) {
+  if (!imageUrl) return false;
+  const row = db
+    .prepare('SELECT id FROM articles WHERE image_url = ? AND id != ? LIMIT 1')
+    .get(imageUrl, Number(currentArticleId) || 0);
+  return Boolean(row);
+}
+
+async function fetchOgImageForArticle(articleUrl, articleId) {
+  if (!articleUrl || !/^https?:\/\//i.test(articleUrl)) return '';
+  if (articleUrl.includes('news.google.com/rss/articles/')) return '';
+  try {
+    const res = await fetchWithTimeout(articleUrl, {}, 4200);
+    if (!res.ok) return '';
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('text/html')) return '';
+
+    const html = (await res.text()).slice(0, 95000);
+    const metaPatterns = [
+      /<meta\b[^>]*property=["']og:image(?::secure_url)?["'][^>]*content=["']([^"']+)["']/i,
+      /<meta\b[^>]*content=["']([^"']+)["'][^>]*property=["']og:image(?::secure_url)?["']/i,
+      /<meta\b[^>]*name=["']twitter:image(?::src)?["'][^>]*content=["']([^"']+)["']/i,
+      /<meta\b[^>]*content=["']([^"']+)["'][^>]*name=["']twitter:image(?::src)?["']/i
+    ];
+
+    for (const pattern of metaPatterns) {
+      const m = html.match(pattern);
+      if (m && m[1]) {
+        const resolved = resolveUrl(m[1], res.url || articleUrl);
+        if (
+          !isLikelyTrackingOrGenericLogo(resolved) &&
+          !isImageAlreadyUsedByAnotherArticle(resolved, articleId)
+        ) {
+          return resolved;
+        }
+      }
+    }
+  } catch {}
+  return '';
+}
+
+// Búsqueda automática de fotografía contextual única para noticias sin imagen o de Google News / Reddit
+async function findContextualNewsImage(article) {
+  try {
+    // Limpiar el título de sufijos "- Nombre del diario" o códigos de congresos
+    let cleanTitle = String(article.title || '')
+      .replace(/\s+-\s+[^-]+$/, '')
+      .replace(/\[[^\]]+\]/g, ' ')
+      .replace(/[^\p{L}\p{N}\s+-]/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    // Tomar las primeras 9 palabras significativas del titular + origen/autor si es corto
+    const words = cleanTitle.split(' ').filter((w) => w.length > 2).slice(0, 9);
+    let query = words.join(' ');
+    if (query.length < 15 && article.feed_title) {
+      query += ' ' + article.feed_title.replace(/\(Alerta[^)]*\)/i, '').trim();
+    }
+    if (!query) query = 'technology news';
+
+    const searchUrl = `https://www.bing.com/images/async?q=${encodeURIComponent(
+      query
+    )}&first=1&count=14&qft=+filterui:photo-photo`;
+
+    const res = await fetchWithTimeout(searchUrl, {}, 4800);
+    if (!res.ok) return '';
+    const html = await res.text();
+
+    // Extraer todas las miniaturas de alta disponibilidad (turl) de los resultados
+    const candidates = [];
+    const turlRegex = /turl&quot;:&quot;(https?:\/\/[^&]+?(?:&amp;[^&]+?)*)&quot;/gi;
+    let match;
+    while ((match = turlRegex.exec(html)) !== null) {
+      const rawTurl = decodeHtmlEntities(match[1]);
+      if (rawTurl && rawTurl.startsWith('http')) {
+        // Pedir recorte panorámico 16:9 limpio (480x270) al CDN de imágenes
+        const formattedUrl = `${rawTurl}&w=480&h=270&c=7`;
+        candidates.push(formattedUrl);
+      }
+    }
+
+    if (candidates.length === 0) return '';
+
+    // Elegir la primera imagen relevante que NO esté repetida en ningún otro artículo
+    const startOffset = Number(article.id || 0) % Math.min(candidates.length, 4);
+    for (let i = 0; i < candidates.length; i++) {
+      const idx = (startOffset + i) % candidates.length;
+      const candidate = candidates[idx];
+      if (!isImageAlreadyUsedByAnotherArticle(candidate, article.id)) {
+        return candidate;
+      }
+    }
+
+    return candidates[0];
+  } catch {
+    return '';
+  }
+}
+
+// Evita resoluciones duplicadas simultáneas para el mismo artículo
+const inFlightArticleImageResolvers = new Map();
+
+async function resolveAndSaveArticleImage(articleId) {
+  const id = Number(articleId);
+  if (inFlightArticleImageResolvers.has(id)) {
+    return inFlightArticleImageResolvers.get(id);
+  }
+
+  const task = (async () => {
+    try {
+      const row = db
+        .prepare(`
+          SELECT a.id, a.title, a.link, a.image_url, a.author, f.title AS feed_title
+          FROM articles a
+          JOIN feeds f ON f.id = a.feed_id
+          WHERE a.id = ?
+        `)
+        .get(id);
+
+      if (!row) return '';
+
+      // Si ya tiene una imagen única válida, usarla
+      if (
+        row.image_url &&
+        row.image_url !== 'none' &&
+        !isImageAlreadyUsedByAnotherArticle(row.image_url, row.id)
+      ) {
+        return row.image_url;
+      }
+
+      // Paso 1: Intentar extraer og:image único del artículo original
+      let discovered = await fetchOgImageForArticle(row.link, row.id);
+
+      // Paso 2: Si la fuente no ofrece imagen (o era un logo repetido o es Google News),
+      // buscar una fotografía contextual única para el titular de la noticia
+      if (!discovered) {
+        discovered = await findContextualNewsImage(row);
+      }
+
+      if (discovered) {
+        db.prepare('UPDATE articles SET image_url = ? WHERE id = ?').run(discovered, row.id);
+        return discovered;
+      }
+
+      return '';
+    } finally {
+      inFlightArticleImageResolvers.delete(id);
+    }
+  })();
+
+  inFlightArticleImageResolvers.set(id, task);
+  return task;
+}
+
+// Enriquecedor continuo en segundo plano para pre-cargar imágenes únicas en la BD
+let isEnrichingImages = false;
+async function enrichMissingArticleImages() {
+  if (isEnrichingImages) return;
+  isEnrichingImages = true;
+  try {
+    while (true) {
+      const missing = db
+        .prepare(`
+          SELECT id FROM articles
+          WHERE image_url IS NULL OR image_url = ''
+          ORDER BY published_ts DESC
+          LIMIT 24
+        `)
+        .all();
+
+      if (missing.length === 0) break;
+
+      // Procesar en lotes de 6 en paralelo
+      for (let i = 0; i < missing.length; i += 6) {
+        const chunk = missing.slice(i, i + 6);
+        await Promise.all(
+          chunk.map(async (r) => {
+            const url = await resolveAndSaveArticleImage(r.id);
+            if (!url) {
+              db.prepare("UPDATE articles SET image_url = 'none' WHERE id = ?").run(r.id);
+            }
+          })
+        );
+      }
+    }
+  } finally {
+    isEnrichingImages = false;
+  }
+}
+
+// ============================================================================
+// Autodetección de Feeds y Sincronización por Lotes
+// ============================================================================
+
 async function discoverFeedUrl(inputUrl) {
   let normalized = inputUrl.trim();
-  // Si el usuario escribe r/Subreddit directamente
   if (/^\/?r\/[a-zA-Z0-9_]+$/i.test(normalized)) {
     const sub = normalized.replace(/^\/?r\//i, '');
     return {
@@ -730,7 +927,6 @@ async function discoverFeedUrl(inputUrl) {
     normalized = 'https://' + normalized;
   }
 
-  // Si es una URL de Reddit directa a un subreddit sin .rss
   const redditSubMatch = normalized.match(/^https?:\/\/(?:www\.)?reddit\.com\/r\/([a-zA-Z0-9_]+)\/?$/i);
   if (redditSubMatch) {
     return {
@@ -780,65 +976,6 @@ async function discoverFeedUrl(inputUrl) {
   throw new Error('No se encontró un canal RSS/Atom válido en esa dirección.');
 }
 
-async function fetchOgImageForArticle(articleUrl) {
-  if (!articleUrl || !/^https?:\/\//i.test(articleUrl)) return '';
-  // Evitar hacer scraping sobre wrappers cerrados de Google News que requieren redirección JS
-  if (articleUrl.includes('news.google.com/rss/articles/')) return '';
-  try {
-    const res = await fetchWithTimeout(articleUrl, {}, 4800);
-    if (!res.ok) return '';
-    const contentType = res.headers.get('content-type') || '';
-    if (!contentType.includes('text/html')) return '';
-
-    const html = (await res.text()).slice(0, 85000);
-    const metaPatterns = [
-      /<meta\b[^>]*property=["']og:image(?::secure_url)?["'][^>]*content=["']([^"']+)["']/i,
-      /<meta\b[^>]*content=["']([^"']+)["'][^>]*property=["']og:image(?::secure_url)?["']/i,
-      /<meta\b[^>]*name=["']twitter:image(?::src)?["'][^>]*content=["']([^"']+)["']/i,
-      /<meta\b[^>]*content=["']([^"']+)["'][^>]*name=["']twitter:image(?::src)?["']/i
-    ];
-
-    for (const pattern of metaPatterns) {
-      const m = html.match(pattern);
-      if (m && m[1]) {
-        const resolved = resolveUrl(m[1], res.url || articleUrl);
-        if (!isLikelyTrackingImage(resolved)) {
-          return resolved;
-        }
-      }
-    }
-  } catch {}
-  return '';
-}
-
-let isEnrichingImages = false;
-async function enrichMissingArticleImages() {
-  if (isEnrichingImages) return;
-  isEnrichingImages = true;
-  try {
-    const missing = db
-      .prepare(`
-        SELECT id, link FROM articles
-        WHERE (image_url IS NULL OR image_url = '')
-        ORDER BY published_ts DESC
-        LIMIT 15
-      `)
-      .all();
-
-    const updateStmt = db.prepare('UPDATE articles SET image_url = ? WHERE id = ?');
-    for (const row of missing) {
-      const ogImg = await fetchOgImageForArticle(row.link);
-      updateStmt.run(ogImg || 'none', row.id);
-    }
-  } finally {
-    isEnrichingImages = false;
-  }
-}
-
-// ============================================================================
-// Sincronización por lotes con concurrencia controlada (para soportar +100 feeds)
-// ============================================================================
-
 async function syncSingleFeed(feedRow, preloadedXml = null) {
   try {
     let xmlText = preloadedXml;
@@ -875,18 +1012,19 @@ async function syncSingleFeed(feedRow, preloadedXml = null) {
 
     let addedCount = 0;
     const now = Date.now();
-    // Guardar los 20 artículos más recientes de cada feed para no saturar cuando hay >100 feeds
     const itemsToProcess = parsed.items.slice(0, 20);
 
     for (const item of itemsToProcess) {
       if (checkDismissed.get(feedRow.id, item.guid)) continue;
 
       const existing = checkExisting.get(feedRow.id, item.guid);
-      if (existing) {
-        if ((!existing.image_url || existing.image_url === 'none') && item.imageUrl) {
-          db.prepare('UPDATE articles SET image_url = ? WHERE id = ?').run(item.imageUrl, existing.id);
-        }
-        continue;
+      if (existing) continue;
+
+      // Si la imagen del RSS ya está repetida en otro artículo (ej. un logo fijo del blog),
+      // dejarla vacía para que el buscador contextual le asigne una foto única
+      let finalImg = item.imageUrl || '';
+      if (finalImg && isImageAlreadyUsedByAnotherArticle(finalImg, 0)) {
+        finalImg = '';
       }
 
       const result = insertArticle.run(
@@ -899,7 +1037,7 @@ async function syncSingleFeed(feedRow, preloadedXml = null) {
         item.author || '',
         item.excerpt || '',
         item.contentHtml || '',
-        item.imageUrl || '',
+        finalImg,
         now
       );
 
@@ -913,6 +1051,7 @@ async function syncSingleFeed(feedRow, preloadedXml = null) {
       WHERE id = ?
     `).run(new Date().toISOString(), parsed.siteUrl || '', feedRow.id);
 
+    enrichMissingArticleImages().catch(() => {});
     return { feedId: feedRow.id, addedCount, error: null };
   } catch (err) {
     const msg = err && err.message ? err.message : 'Error de conexión';
@@ -948,7 +1087,7 @@ async function syncFeedsBatch(feedsList, concurrency = 8) {
 }
 
 // ============================================================================
-// Consultas de Estado, Artículos y Eliminación Inmediata de Leídas
+// Estado, Artículos y Eliminación Inmediata de Leídas
 // ============================================================================
 
 function getSidebarState() {
@@ -1168,6 +1307,40 @@ function readJsonBody(req) {
   });
 }
 
+async function streamImageUrlToResponse(targetUrl, res) {
+  const imgRes = await fetchWithTimeout(
+    targetUrl,
+    {
+      headers: {
+        Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+        Referer: new URL(targetUrl).origin
+      }
+    },
+    6000
+  );
+
+  if (!imgRes.ok) {
+    throw new Error(`Image HTTP ${imgRes.status}`);
+  }
+
+  const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
+  if (!contentType.startsWith('image/')) {
+    throw new Error('Not an image content-type');
+  }
+
+  const arrayBuf = await imgRes.arrayBuffer();
+  if (arrayBuf.byteLength < 600) {
+    throw new Error('Image too small (tracking pixel)');
+  }
+
+  res.writeHead(200, {
+    'Content-Type': contentType,
+    'Access-Control-Allow-Origin': '*',
+    'Cache-Control': 'public, max-age=86400'
+  });
+  res.end(Buffer.from(arrayBuf));
+}
+
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
@@ -1197,7 +1370,49 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { sidebar, articles });
     }
 
-    // 2. Sincronizar un feed, una categoría o todos los feeds
+    // 2. Endpoint Inteligente de Imagen por Artículo (/api/article-image/:id)
+    // Garantiza que cada tarjeta obtenga una foto real y única aunque el RSS original no la incluya
+    if (req.method === 'GET' && pathname.startsWith('/api/article-image/')) {
+      const articleId = Number(pathname.split('/').pop());
+      if (!articleId) {
+        res.writeHead(400);
+        return res.end();
+      }
+
+      let imageUrl = await resolveAndSaveArticleImage(articleId);
+      if (imageUrl) {
+        try {
+          await streamImageUrlToResponse(imageUrl, res);
+          return;
+        } catch {
+          // Si la URL original del medio falló (403/404), buscar fotografía contextual de respaldo
+          const row = db
+            .prepare(`
+              SELECT a.id, a.title, f.title AS feed_title
+              FROM articles a
+              JOIN feeds f ON f.id = a.feed_id
+              WHERE a.id = ?
+            `)
+            .get(articleId);
+
+          if (row) {
+            const fallbackUrl = await findContextualNewsImage(row);
+            if (fallbackUrl) {
+              db.prepare('UPDATE articles SET image_url = ? WHERE id = ?').run(fallbackUrl, articleId);
+              try {
+                await streamImageUrlToResponse(fallbackUrl, res);
+                return;
+              } catch {}
+            }
+          }
+        }
+      }
+
+      res.writeHead(404);
+      return res.end();
+    }
+
+    // 3. Sincronizar feeds
     if (req.method === 'POST' && pathname === '/api/sync') {
       const body = await readJsonBody(req);
       if (body.feedId) {
@@ -1216,12 +1431,11 @@ const server = http.createServer(async (req, res) => {
         feedsToSync = db.prepare('SELECT * FROM feeds ORDER BY id ASC').all();
       }
 
-      // Lanzar sincronización por lotes en segundo plano para respuesta inmediata
       syncFeedsBatch(feedsToSync, 8).catch((e) => console.error('Error en batch sync:', e));
       return sendJson(res, 200, { ok: true, started: true, sidebar: getSidebarState() });
     }
 
-    // 3. Añadir nuevo feed tradicional (sitio web, RSS/Atom o r/subreddit)
+    // 4. Añadir nuevo feed tradicional
     if (req.method === 'POST' && pathname === '/api/feeds') {
       const body = await readJsonBody(req);
       const rawUrl = (body.url || '').trim();
@@ -1271,7 +1485,7 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // 4. Añadir Feed de Búsqueda por Palabras Clave (Google News, Reddit, Hacker News)
+    // 5. Añadir Feed de Búsqueda por Palabras Clave
     if (req.method === 'POST' && pathname === '/api/feeds/keyword') {
       const body = await readJsonBody(req);
       const query = (body.query || '').trim();
@@ -1307,7 +1521,7 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // 5. Eliminación individual de un feed
+    // 6. Eliminación individual de un feed
     if (req.method === 'DELETE' && pathname.startsWith('/api/feeds/')) {
       const feedId = Number(pathname.split('/').pop());
       const articlesOfFeed = db.prepare('SELECT id FROM articles WHERE feed_id = ?').all(feedId);
@@ -1320,7 +1534,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, sidebar: getSidebarState() });
     }
 
-    // 6. Eliminación en lote de múltiples feeds (para limpieza rápida del OPML)
+    // 7. Eliminación en lote de múltiples feeds
     if (req.method === 'POST' && pathname === '/api/feeds/bulk-delete') {
       const body = await readJsonBody(req);
       const feedIds = Array.isArray(body.feedIds) ? body.feedIds.map(Number).filter(Boolean) : [];
@@ -1346,7 +1560,7 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // 7. Editar título o carpeta de un feed
+    // 8. Editar título o carpeta de un feed
     if (req.method === 'PATCH' && pathname.startsWith('/api/feeds/')) {
       const feedId = Number(pathname.split('/').pop());
       const body = await readJsonBody(req);
@@ -1366,7 +1580,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, sidebar: getSidebarState() });
     }
 
-    // 8. Marcar noticias como leídas -> Eliminación inmediata excepto guardadas
+    // 9. Marcar noticias como leídas -> Eliminación inmediata excepto guardadas
     if (req.method === 'POST' && pathname === '/api/articles/mark-read') {
       const body = await readJsonBody(req);
       const ids = Array.isArray(body.articleIds) ? body.articleIds : [];
@@ -1378,7 +1592,7 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // 9. Deshacer última eliminación de noticias leídas
+    // 10. Deshacer última eliminación de noticias leídas
     if (req.method === 'POST' && pathname === '/api/articles/undo-dismiss') {
       const batch = recentDismissedBatches.pop();
       if (!batch || batch.length === 0) {
@@ -1427,7 +1641,7 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // 10. Alternar Guardado o añadir/editar Nota
+    // 11. Alternar Guardado o añadir/editar Nota
     if (req.method === 'POST' && pathname.startsWith('/api/articles/') && pathname.endsWith('/save')) {
       const parts = pathname.split('/');
       const articleId = Number(parts[3]);
@@ -1451,7 +1665,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, article: updated, sidebar: getSidebarState() });
     }
 
-    // 11. Extraer texto completo de una noticia
+    // 12. Extraer texto completo de una noticia
     if (req.method === 'GET' && pathname.startsWith('/api/articles/') && pathname.endsWith('/fulltext')) {
       const parts = pathname.split('/');
       const articleId = Number(parts[3]);
@@ -1462,7 +1676,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, paragraphs });
     }
 
-    // 12. Importar archivo OPML manual
+    // 13. Importar archivo OPML manual
     if (req.method === 'POST' && pathname === '/api/opml/import') {
       const body = await readJsonBody(req);
       if (!body.opml || typeof body.opml !== 'string') {
@@ -1478,7 +1692,7 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // 13. Proxy CORS de imágenes para WebGPU
+    // 14. Proxy CORS directo de imágenes
     if (req.method === 'GET' && pathname === '/api/image-proxy') {
       const targetUrl = parsedUrl.searchParams.get('url');
       if (!targetUrl || !/^https?:\/\//i.test(targetUrl)) {
@@ -1487,37 +1701,15 @@ const server = http.createServer(async (req, res) => {
       }
 
       try {
-        const imgRes = await fetchWithTimeout(
-          targetUrl,
-          {
-            headers: {
-              Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-              Referer: new URL(targetUrl).origin
-            }
-          },
-          7000
-        );
-
-        if (!imgRes.ok) {
-          res.writeHead(404);
-          return res.end();
-        }
-
-        const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
-        const arrayBuf = await imgRes.arrayBuffer();
-        res.writeHead(200, {
-          'Content-Type': contentType,
-          'Access-Control-Allow-Origin': '*',
-          'Cache-Control': 'public, max-age=86400'
-        });
-        return res.end(Buffer.from(arrayBuf));
+        await streamImageUrlToResponse(targetUrl, res);
+        return;
       } catch {
         res.writeHead(404);
         return res.end();
       }
     }
 
-    // 14. Archivos estáticos
+    // 15. Archivos estáticos
     let relPath = pathname === '/' ? '/index.html' : pathname;
     const safePath = path.normalize(relPath).replace(/^(\.\.[/\\])+/, '');
     const filePath = path.join(PUBLIC_DIR, safePath);
@@ -1541,11 +1733,10 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Feedly Local (WebGPU) escuchando en http://localhost:${PORT}`);
-  const allFeeds = db.prepare('SELECT * FROM feeds ORDER BY id ASC').all();
   const unsynced = db.prepare('SELECT * FROM feeds WHERE last_synced_at IS NULL ORDER BY id ASC').all();
   if (unsynced.length > 0) {
     syncFeedsBatch(unsynced, 8).catch((e) => console.error('Error en sync inicial:', e));
-  } else if (allFeeds.length > 0) {
+  } else {
     enrichMissingArticleImages().catch(() => {});
   }
 });

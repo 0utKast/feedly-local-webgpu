@@ -318,7 +318,7 @@ function renderCardsGrid() {
     }
 
     mediaWrap.addEventListener('click', () => openReaderDrawer(article));
-    gpuMedia.attachCardCanvas(canvas, article.image_url, article.feed_title || article.title);
+    gpuMedia.attachCardCanvas(canvas, article.id, article.title);
 
     card.addEventListener('mouseenter', () => gpuMedia.setCardHover(canvas, true));
     card.addEventListener('mouseleave', () => gpuMedia.setCardHover(canvas, false));
