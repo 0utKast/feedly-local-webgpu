@@ -312,6 +312,7 @@ function updateSyncButtonUi() {
   if (ss && ss.isSyncing) {
     elBtnSync.classList.add('syncing');
     elSyncLabel.textContent = `Sincronizando ${ss.completed}/${ss.total}`;
+    elBtnSync.title = `Sincronizando fuentes (${ss.completed}/${ss.total})...`;
     if (!syncPollTimer) {
       syncPollTimer = setTimeout(() => {
         syncPollTimer = null;
@@ -321,6 +322,7 @@ function updateSyncButtonUi() {
   } else {
     elBtnSync.classList.remove('syncing');
     elSyncLabel.textContent = 'Recargar';
+    elBtnSync.title = 'Actualización automática activa cada 15 min · Pulsa para forzar recarga ahora';
   }
 }
 
@@ -1652,6 +1654,22 @@ async function bootstrap() {
   }
 
   await fetchState();
+
+  // Comprobación automática periódica (cada 60 s) y al volver a la pestaña (estilo Feedly)
+  let lastAutoCheckTs = Date.now();
+  setInterval(() => {
+    if (document.visibilityState === 'visible' && !state.isLoadingMore) {
+      lastAutoCheckTs = Date.now();
+      pollSyncProgress().catch(() => {});
+    }
+  }, 60 * 1000);
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && Date.now() - lastAutoCheckTs > 45 * 1000) {
+      lastAutoCheckTs = Date.now();
+      pollSyncProgress().catch(() => {});
+    }
+  });
 }
 
 bootstrap();

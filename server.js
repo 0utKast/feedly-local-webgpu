@@ -229,11 +229,15 @@ function rememberRecentlyReadArticle(articleObj) {
   }
 }
 
+const AUTO_SYNC_INTERVAL_MINUTES = 15;
+
 const syncStatus = {
   isSyncing: false,
   completed: 0,
   total: 0,
-  currentFeedTitle: ''
+  currentFeedTitle: '',
+  lastCompletedAt: Date.now(),
+  autoSyncMinutes: AUTO_SYNC_INTERVAL_MINUTES
 };
 
 function rebuildFtsIndex() {
@@ -1234,7 +1238,11 @@ async function syncSingleFeed(feedRow, preloadedXml = null) {
     return { feedId: feedRow.id, addedCount, error: null };
   } catch (err) {
     const msg = err && err.message ? err.message : 'Error de conexión';
-    db.prepare('UPDATE feeds SET error_msg = ? WHERE id = ?').run(msg, feedRow.id);
+    db.prepare('UPDATE feeds SET last_synced_at = ?, error_msg = ? WHERE id = ?').run(
+      new Date().toISOString(),
+      msg,
+      feedRow.id
+    );
     return { feedId: feedRow.id, addedCount: 0, error: msg };
   }
 }
@@ -1262,7 +1270,26 @@ async function syncFeedsBatch(feedsList, concurrency = 8) {
   } finally {
     syncStatus.isSyncing = false;
     syncStatus.currentFeedTitle = '';
+    syncStatus.lastCompletedAt = Date.now();
   }
+}
+
+function triggerAutoSyncIfNeeded(maxAgeMinutes = AUTO_SYNC_INTERVAL_MINUTES) {
+  if (syncStatus.isSyncing) return false;
+  const cutoffIso = new Date(Date.now() - maxAgeMinutes * 60 * 1000).toISOString();
+  const dueFeeds = db
+    .prepare(`
+      SELECT * FROM feeds
+      WHERE last_synced_at IS NULL OR last_synced_at < ?
+      ORDER BY COALESCE(last_synced_at, '') ASC, id ASC
+    `)
+    .all(cutoffIso);
+
+  if (dueFeeds.length > 0) {
+    syncFeedsBatch(dueFeeds, 8).catch((e) => console.error('Error en auto-sync:', e));
+    return true;
+  }
+  return false;
 }
 
 // ============================================================================
@@ -1673,6 +1700,10 @@ const server = http.createServer(async (req, res) => {
       const filter = parsedUrl.searchParams.get('filter') || 'all';
       const search = parsedUrl.searchParams.get('search') || '';
       const limit = Number(parsedUrl.searchParams.get('limit')) || 90;
+
+      // Al abrir o consultar el lector, si hay fuentes sin sincronizar en los últimos 10 minutos,
+      // iniciar automáticamente su actualización en segundo plano (estilo Feedly)
+      triggerAutoSyncIfNeeded(10);
 
       const sidebar = getSidebarState();
       const { articles, totalMatching, ageCounts } = queryArticlesWithTotal({
@@ -2149,10 +2180,11 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Feedly Local (WebGPU) escuchando en http://localhost:${PORT}`);
-  const unsynced = db.prepare('SELECT * FROM feeds WHERE last_synced_at IS NULL ORDER BY id ASC').all();
-  if (unsynced.length > 0) {
-    syncFeedsBatch(unsynced, 8).catch((e) => console.error('Error en sync inicial:', e));
-  } else {
+  if (!triggerAutoSyncIfNeeded(AUTO_SYNC_INTERVAL_MINUTES)) {
     enrichMissingArticleImages().catch(() => {});
   }
+  // Demonio de actualización automática cada 15 minutos en segundo plano (estilo Feedly)
+  setInterval(() => {
+    triggerAutoSyncIfNeeded(AUTO_SYNC_INTERVAL_MINUTES);
+  }, 2 * 60 * 1000);
 });
