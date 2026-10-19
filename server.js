@@ -1439,7 +1439,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/feeds') {
       const body = await readJsonBody(req);
       const rawUrl = (body.url || '').trim();
-      const categoryName = (body.categoryName || '00. Tecnología').trim();
+      const categoryName = (body.categoryName || '4. Actualidad Tecnológica').trim();
       const customTitle = (body.title || '').trim();
 
       if (!rawUrl) {
@@ -1492,7 +1492,7 @@ const server = http.createServer(async (req, res) => {
       const provider = body.provider || 'google_es';
       const subreddit = (body.subreddit || '').trim();
       const sort = body.sort || 'new';
-      const categoryName = (body.categoryName || 'Must Read').trim();
+      const categoryName = (body.categoryName || '3. Alertas de Búsqueda').trim();
       const customTitle = (body.title || '').trim();
 
       const built = buildKeywordSearchFeed({ query, provider, subreddit, sort });
