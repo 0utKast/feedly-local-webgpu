@@ -1645,7 +1645,30 @@ const MIME_TYPES = {
 
 const server = http.createServer(async (req, res) => {
   try {
-    const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const hostHeader = String(req.headers.host || 'localhost');
+    const hostnameOnly = hostHeader.split(':')[0].toLowerCase();
+    const userAgent = String(req.headers['user-agent'] || '');
+    const remoteAddr = String(req.socket.remoteAddress || '');
+    const localAddr = String(req.socket.localAddress || '');
+    const isSameMachineIp =
+      remoteAddr === '127.0.0.1' ||
+      remoteAddr === '::1' ||
+      remoteAddr === '::ffff:127.0.0.1' ||
+      (remoteAddr && remoteAddr === localAddr);
+
+    // Si se abre el marcador compartido (http://192.168.1.225:3040) desde el propio Mac,
+    // redirigir automáticamente a http://localhost:3040 para que Chrome active WebGPU nativo sin flags
+    if (
+      hostnameOnly !== 'localhost' &&
+      hostnameOnly !== '127.0.0.1' &&
+      isSameMachineIp &&
+      /Macintosh|Mac OS X/i.test(userAgent)
+    ) {
+      res.writeHead(302, { Location: `http://localhost:${PORT}${req.url || '/'}` });
+      return res.end();
+    }
+
+    const parsedUrl = new URL(req.url, `http://${hostHeader}`);
     const pathname = parsedUrl.pathname;
 
     // 1. Estado general y artículos
