@@ -1,7 +1,7 @@
 {
   "name": "feedly-local-webgpu",
-  "version": "1.0.0",
-  "description": "Lector de feeds local inspirado en Feedly con vista de 3 tarjetas, SQLite FTS5 y procesado visual WebGPU/WGSL",
+  "version": "2.0.0",
+  "description": "Lector RSS/Atom Local-First inspirado en Feedly con Agente de Inteligencia IA Local (Ollama/Gemma 4), SQLite FTS5 nativo y shaders WebGPU/WGSL de cómputo y renderizado",
   "main": "server.js",
   "scripts": {
     "start": "node --no-warnings server.js"

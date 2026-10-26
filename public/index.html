@@ -106,6 +106,16 @@
         </div>
 
         <div class="topbar-end">
+          <button
+            type="button"
+            id="btn-open-briefing"
+            class="btn-subtle btn-briefing-trigger"
+            title="Abrir Informes Ejecutivos en Vivo (Actuales, 1h, 12h, 24h) con Gemma 4 Local + WebGPU WGSL"
+          >
+            <span class="briefing-spark" aria-hidden="true">✦</span>
+            <span>Informes en Vivo</span>
+          </button>
+
           <button type="button" id="btn-undo-dismiss" class="btn-subtle btn-undo" hidden title="Restaurar las últimas noticias leídas y eliminadas">
             ↩ Deshacer borrado
           </button>
@@ -426,6 +436,107 @@
         <button type="submit" class="btn-primary">Importar feeds</button>
       </footer>
     </form>
+  </dialog>
+
+  <!-- Modal nativo <dialog> para Informes Ejecutivos en Vivo (Gemma 4 Local + WebGPU WGSL + Monitoreo Horario) -->
+  <dialog id="briefing-dialog" closedby="any" class="modal-dialog modal-briefing" aria-labelledby="briefing-dialog-title">
+    <header class="modal-header briefing-header">
+      <div class="briefing-header-left">
+        <div class="briefing-title-row">
+          <h3 id="briefing-dialog-title">Informes Ejecutivos en Vivo · Agente Local</h3>
+          <span id="briefing-gpu-telemetry" class="gpu-badge active">WGSL Compute · M4 Pro GPU</span>
+        </div>
+        <p id="briefing-status-subtitle" class="modal-subtitle">
+          Monitoreo automático cada hora · Informes pre-elaborados en SQLite
+        </p>
+      </div>
+
+      <div class="briefing-header-controls">
+        <div class="briefing-model-box">
+          <label for="select-briefing-model">Modelo Local (Ollama):</label>
+          <select id="select-briefing-model" class="select-minimal">
+            <option value="gemma4:12b">gemma4:12b (Recomendado 24GB)</option>
+            <option value="gemma4:26b">gemma4:26b (MoE A4B)</option>
+            <option value="gemma4:e4b">gemma4:e4b (Ultra-rápido)</option>
+            <option value="gemma4">gemma4 (latest)</option>
+            <option value="qwen3.5:14b">qwen3.5:14b</option>
+          </select>
+        </div>
+
+        <button type="button" id="btn-regenerate-briefing" class="btn-subtle" title="Re-analizar textos completos y sintetizar con el modelo local">
+          ↻ Actualizar informe ahora
+        </button>
+        <button type="button" id="btn-close-briefing" class="btn-icon" title="Cerrar (Esc)">✕</button>
+      </div>
+    </header>
+
+    <div class="briefing-scope-tabs" role="tablist" aria-label="Ventana temporal del informe">
+      <button type="button" class="briefing-scope-tab active" data-briefing-scope="unread">
+        <span class="scope-tab-name">Actuales (No leídas)</span>
+        <span id="briefing-count-unread" class="scope-tab-badge">0</span>
+      </button>
+      <button type="button" class="briefing-scope-tab" data-briefing-scope="1h">
+        <span class="scope-tab-name">Última hora (1h)</span>
+        <span id="briefing-count-1h" class="scope-tab-badge">0</span>
+      </button>
+      <button type="button" class="briefing-scope-tab" data-briefing-scope="12h">
+        <span class="scope-tab-name">Últimas 12 horas</span>
+        <span id="briefing-count-12h" class="scope-tab-badge">0</span>
+      </button>
+      <button type="button" class="briefing-scope-tab" data-briefing-scope="24h">
+        <span class="scope-tab-name">Últimas 24 horas</span>
+        <span id="briefing-count-24h" class="scope-tab-badge">0</span>
+      </button>
+    </div>
+
+    <div class="briefing-content-grid">
+      <!-- Columna izquierda: Noticia Estrella + Informe Ejecutivo IA + Radar por Carpetas -->
+      <div class="briefing-narrative-col">
+        <div id="briefing-star-hero" class="briefing-star-hero">
+          <!-- Renderizado dinámico del tema #1 -->
+        </div>
+
+        <div class="briefing-section-card">
+          <div class="briefing-section-head">
+            <span class="briefing-section-kicker">SÍNTESIS EJECUTIVA LOCAL</span>
+            <span id="briefing-model-used" class="briefing-meta-pill">Motor Local</span>
+          </div>
+          <div id="briefing-markdown-view" class="briefing-markdown-view">
+            <!-- Informe detallado renderizado -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Columna derecha: Mapa WebGPU WGSL de Clústeres + Desglose Interactivo con Marcado como Leído -->
+      <div class="briefing-clusters-col">
+        <div class="briefing-radar-card">
+          <div class="briefing-radar-head">
+            <span>ESPECTRO DE IMPACTO Y AFINIDAD (WEBGPU · WGSL)</span>
+            <span id="briefing-compute-ms" class="briefing-compute-ms">0.2 ms</span>
+          </div>
+          <canvas id="briefing-gpu-canvas" class="briefing-gpu-canvas" width="520" height="130"></canvas>
+        </div>
+
+        <div class="briefing-clusters-header">
+          <span>CLÚSTERES DETECTADOS Y COBERTURA DE MEDIOS</span>
+          <span id="briefing-clusters-count" class="briefing-meta-pill">0 temas</span>
+        </div>
+
+        <div id="briefing-clusters-list" class="briefing-clusters-list">
+          <!-- Tarjetas interactivas de cada clúster con botón para marcar tema como leído -->
+        </div>
+      </div>
+    </div>
+
+    <footer class="modal-footer briefing-footer">
+      <span id="briefing-footer-timestamp" class="briefing-footer-info">Actualizado automáticamente</span>
+      <div class="briefing-footer-actions">
+        <button type="button" id="btn-regenerate-all-briefings" class="btn-subtle">
+          ↻ Recalcular los 4 informes (1h / 12h / 24h / Actuales)
+        </button>
+        <button type="button" id="btn-done-briefing" class="btn-primary">Cerrar informe</button>
+      </div>
+    </footer>
   </dialog>
 
   <script type="module" src="/app.js"></script>

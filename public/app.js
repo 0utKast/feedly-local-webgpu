@@ -1,4 +1,5 @@
 import { WebGpuCardMediaEngine } from './webgpu-media.js';
+import { WebGpuBriefingEngine } from './webgpu-briefing.js';
 
 // Feature detect Popover and CSS Anchor Positioning (per modern-web-guidance)
 if (!('popover' in HTMLElement.prototype)) {
@@ -9,6 +10,7 @@ if (!('anchorName' in document.documentElement.style)) {
 }
 
 const gpuMedia = new WebGpuCardMediaEngine();
+const gpuBriefing = new WebGpuBriefingEngine();
 
 const state = {
   filter: 'all', // 'all' | 'keywords' | 'saved' | 'notes'
@@ -1637,6 +1639,407 @@ function bindEvents() {
       await fetchState();
     }
   });
+
+  bindBriefingEvents();
+}
+
+// ============================================================================
+// Controlador del Panel «Informes en Vivo» (Gemma 4 Local + WebGPU WGSL)
+// ============================================================================
+
+const briefingState = {
+  activeScope: 'unread',
+  reports: {},
+  status: {
+    ollamaOnline: false,
+    preferredModel: 'gemma4:12b',
+    availableModels: [],
+    lastHourlyRunAt: 0
+  }
+};
+
+function renderMarkdownSafe(md) {
+  let cleanMd = String(md || '');
+  // Si el modelo incluyó un preámbulo de memorando antes del primer encabezado ###, recortarlo
+  const firstSectionIdx = cleanMd.indexOf('### ');
+  if (firstSectionIdx > 0 && firstSectionIdx < 420) {
+    cleanMd = cleanMd.slice(firstSectionIdx);
+  }
+
+  const lines = cleanMd.split('\n');
+  const htmlParts = [];
+  let inList = false;
+
+  const formatInline = (text) =>
+    escapeHtml(text)
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      .replace(/`([^`]+)`/g, '<code>$1</code>');
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line || line === '***' || line === '---' || line === '___') {
+      if (inList) {
+        htmlParts.push('</ul>');
+        inList = false;
+      }
+      continue;
+    }
+
+    const headingMatch = line.match(/^(#{1,4})\s+(.+)$/);
+    if (headingMatch) {
+      if (inList) {
+        htmlParts.push('</ul>');
+        inList = false;
+      }
+      htmlParts.push(`<h3>${formatInline(headingMatch[2])}</h3>`);
+      continue;
+    }
+
+    if (line.startsWith('- ') || line.startsWith('* ') || /^\d+\.\s+/.test(line)) {
+      if (!inList) {
+        htmlParts.push('<ul>');
+        inList = true;
+      }
+      const itemText = line.replace(/^([-*]|\d+\.)\s+/, '');
+      htmlParts.push(`<li>${formatInline(itemText)}</li>`);
+      continue;
+    }
+
+    if (inList) {
+      htmlParts.push('</ul>');
+      inList = false;
+    }
+    htmlParts.push(`<p>${formatInline(line)}</p>`);
+  }
+
+  if (inList) htmlParts.push('</ul>');
+  return htmlParts.join('');
+}
+
+async function openArticleFromBriefing(articleId, fallbackUrl) {
+  const existing = state.articles.find((a) => Number(a.id) === Number(articleId));
+  if (existing) {
+    document.getElementById('briefing-dialog')?.close();
+    openReaderDrawer(existing);
+    return;
+  }
+
+  if (articleId) {
+    try {
+      const res = await fetch(`/api/articles/${articleId}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.article) {
+          document.getElementById('briefing-dialog')?.close();
+          openReaderDrawer(data.article);
+          return;
+        }
+      }
+    } catch {}
+  }
+
+  if (fallbackUrl) {
+    window.open(fallbackUrl, '_blank', 'noopener,noreferrer');
+  }
+}
+
+async function renderBriefingView() {
+  const rep = briefingState.reports[briefingState.activeScope];
+  const elStarHero = document.getElementById('briefing-star-hero');
+  const elMdView = document.getElementById('briefing-markdown-view');
+  const elModelUsed = document.getElementById('briefing-model-used');
+  const elClustersList = document.getElementById('briefing-clusters-list');
+  const elClustersCount = document.getElementById('briefing-clusters-count');
+  const elFooterTs = document.getElementById('briefing-footer-timestamp');
+  const elSubtitle = document.getElementById('briefing-status-subtitle');
+  const elCanvas = document.getElementById('briefing-gpu-canvas');
+  const elComputeMs = document.getElementById('briefing-compute-ms');
+
+  for (const sk of ['unread', '1h', '12h', '24h']) {
+    const r = briefingState.reports[sk];
+    const badge = document.getElementById(`briefing-count-${sk}`);
+    if (badge) badge.textContent = r ? r.totalArticles || 0 : 0;
+  }
+
+  document.querySelectorAll('.briefing-scope-tab').forEach((tab) => {
+    tab.classList.toggle('active', tab.dataset.briefingScope === briefingState.activeScope);
+  });
+
+  if (!rep) return;
+
+  const ollamaBadge = briefingState.status.ollamaOnline
+    ? `Ollama Local Activo (${briefingState.status.preferredModel})`
+    : `Modo Estructurado Local (Ejecuta 'ollama serve' para síntesis con ${briefingState.status.preferredModel})`;
+  if (elSubtitle) {
+    elSubtitle.textContent = `Monitoreo horario activo · ${rep.totalArticles || 0} noticias analizadas en «${rep.title}» · ${ollamaBadge}`;
+  }
+
+  if (elModelUsed) {
+    elModelUsed.textContent = rep.aiModel || 'Motor Local';
+  }
+  if (elFooterTs) {
+    elFooterTs.textContent = `Informe elaborado: ${formatPubDate(rep.updatedAt)} (${rep.generationMs || 0} ms)`;
+  }
+
+  const clusters = Array.isArray(rep.clusters) ? rep.clusters : [];
+  if (elClustersCount) {
+    elClustersCount.textContent = `${clusters.length} grandes temas`;
+  }
+
+  // 1. Noticia Estrella (#1): Primero Título y Descripción corta, y solo al final los medios
+  if (elStarHero) {
+    if (clusters.length === 0) {
+      elStarHero.innerHTML = `<div class="star-hero-kicker">SIN NOVEDADES EN ESTE TRAMO</div><p class="star-hero-excerpt">No hay noticias acumuladas en esta ventana temporal.</p>`;
+    } else {
+      const star = clusters[0];
+      const leadArt = star.sampleArticles?.[0] || {};
+      const fallbackAngles = (star.sampleArticles || [])
+        .slice(1, 4)
+        .map((sa) => sa.title)
+        .filter((t) => t && t !== star.title)
+        .join(' · ');
+      const shortDesc =
+        star.deepParagraphs && star.deepParagraphs[0]
+          ? star.deepParagraphs[0].slice(0, 290) + '…'
+          : star.leadExcerpt || fallbackAngles || '';
+      const sourcesHtml = (star.sources || [])
+        .slice(0, 8)
+        .map((s) => `<span class="star-source-chip">${escapeHtml(s)}</span>`)
+        .join('');
+
+      elStarHero.innerHTML = `
+        <div class="star-hero-kicker">
+          <span>★ NOTICIA ESTRELLA DEL MOMENTO</span>
+          <span>${escapeHtml(star.category || '')}</span>
+        </div>
+        <h4 class="star-hero-title" id="star-hero-open-btn">${escapeHtml(star.title)}</h4>
+        ${shortDesc ? `<p class="star-hero-excerpt">${escapeHtml(shortDesc)}</p>` : ''}
+        <div class="star-hero-sources">
+          <span>Aparecido en ${star.sourceCount} medios (${star.articleCount} noticias):</span>
+          ${sourcesHtml}
+        </div>
+      `;
+
+      const titleEl = elStarHero.querySelector('#star-hero-open-btn');
+      if (titleEl) {
+        titleEl.addEventListener('click', () =>
+          openArticleFromBriefing(leadArt.id, star.leadLink)
+        );
+      }
+    }
+  }
+
+  // 2. Síntesis Ejecutiva en Markdown
+  if (elMdView) {
+    elMdView.innerHTML = renderMarkdownSafe(rep.aiMarkdown || '');
+  }
+
+  // 3. Tarjetas de Clústeres + Marcado como leído por tema
+  if (elClustersList) {
+    const frag = document.createDocumentFragment();
+    clusters.forEach((cl, idx) => {
+      const card = document.createElement('div');
+      card.className = 'cluster-card';
+
+      const unreadCount = Array.isArray(cl.unreadIds) ? cl.unreadIds.length : 0;
+      const subItemsHtml = (cl.sampleArticles || [])
+        .slice(0, 4)
+        .map(
+          (sa, sIdx) => `
+          <div class="cluster-sub-item" data-art-id="${sa.id || ''}" data-art-link="${escapeHtml(sa.link || '')}" data-sub-idx="${sIdx}">
+            • ${escapeHtml(sa.title)} <span class="cluster-sub-source">(${escapeHtml(sa.source)})</span>
+          </div>
+        `
+        )
+        .join('');
+
+      card.innerHTML = `
+        <div class="cluster-card-top">
+          <span class="cluster-rank-badge">#${idx + 1} · ${cl.articleCount} noticias</span>
+          <span class="cluster-cat-label">${escapeHtml(cl.category || '')}</span>
+          ${
+            unreadCount > 0
+              ? `<button type="button" class="btn-subtle btn-mark-cluster" title="Marcar y retirar las ${unreadCount} noticias no leídas de este tema">✓ Marcar ${unreadCount} leídas</button>`
+              : `<span class="briefing-meta-pill">Leído</span>`
+          }
+        </div>
+        <div class="cluster-title">${escapeHtml(cl.title)}</div>
+        <div class="cluster-headlines-sublist">${subItemsHtml}</div>
+        <div class="cluster-card-footer">
+          <span class="cluster-sources-summary">Medios: ${escapeHtml((cl.sources || []).slice(0, 6).join(', '))}</span>
+        </div>
+      `;
+
+      card.querySelector('.cluster-title').addEventListener('click', () => {
+        const firstSample = cl.sampleArticles?.[0];
+        openArticleFromBriefing(firstSample?.id, cl.leadLink);
+      });
+
+      card.querySelectorAll('.cluster-sub-item').forEach((subEl) => {
+        subEl.addEventListener('click', () => {
+          openArticleFromBriefing(subEl.dataset.artId, subEl.dataset.artLink);
+        });
+      });
+
+      const btnMarkCluster = card.querySelector('.btn-mark-cluster');
+      if (btnMarkCluster && unreadCount > 0) {
+        btnMarkCluster.addEventListener('click', async () => {
+          btnMarkCluster.disabled = true;
+          btnMarkCluster.textContent = 'Marcando...';
+          await markReadAndDelete(cl.unreadIds);
+          await loadBriefingsFromServer();
+        });
+      }
+
+      card.addEventListener('mouseenter', () => {
+        if (elCanvas) {
+          gpuBriefing.computeAffinityAndRender(elCanvas, clusters, idx).catch(() => {});
+        }
+      });
+
+      frag.appendChild(card);
+    });
+    elClustersList.replaceChildren(frag);
+  }
+
+  // 4. Compute Shader WGSL + Mapa de Impacto en GPU
+  if (elCanvas) {
+    const res = await gpuBriefing.computeAffinityAndRender(elCanvas, clusters, -1);
+    if (elComputeMs && res.computeMs > 0) {
+      elComputeMs.textContent = `${res.computeMs} ms · WGSL SIMD vec4`;
+    }
+  }
+}
+
+async function loadBriefingsFromServer() {
+  await flushPendingReadArticles('scroll');
+  const res = await fetch('/api/briefings');
+  if (!res.ok) return;
+  const data = await res.json();
+  briefingState.reports = data.reports || {};
+  if (data.status) {
+    briefingState.status = data.status;
+  }
+
+  // Actualizar selector de modelos Ollama si hay modelos locales detectados
+  const selectModel = document.getElementById('select-briefing-model');
+  if (selectModel && Array.isArray(briefingState.status.availableModels)) {
+    const existingOpts = new Set(Array.from(selectModel.options).map((o) => o.value));
+    for (const m of briefingState.status.availableModels) {
+      if (!existingOpts.has(m)) {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = `${m} (Instalado)`;
+        selectModel.prepend(opt);
+      }
+    }
+    if (briefingState.status.preferredModel) {
+      selectModel.value = briefingState.status.preferredModel;
+    }
+  }
+
+  await renderBriefingView();
+}
+
+function bindBriefingEvents() {
+  const elDialog = document.getElementById('briefing-dialog');
+  const btnOpen = document.getElementById('btn-open-briefing');
+  const btnClose = document.getElementById('btn-close-briefing');
+  const btnDone = document.getElementById('btn-done-briefing');
+  const btnRegen = document.getElementById('btn-regenerate-briefing');
+  const btnRegenAll = document.getElementById('btn-regenerate-all-briefings');
+  const selectModel = document.getElementById('select-briefing-model');
+
+  if (!elDialog || !btnOpen) return;
+
+  // Fallback for browsers without <dialog closedby="any"> support (per modern-web-guidance: light-dismiss-a-dialog)
+  if (!('closedBy' in HTMLDialogElement.prototype)) {
+    elDialog.addEventListener('click', (event) => {
+      if (event.target !== elDialog) return;
+      const rect = elDialog.getBoundingClientRect();
+      const isDialogContent =
+        rect.top <= event.clientY &&
+        event.clientY <= rect.top + rect.height &&
+        rect.left <= event.clientX &&
+        event.clientX <= rect.left + rect.width;
+      if (!isDialogContent) {
+        elDialog.close();
+      }
+    });
+  }
+
+  btnOpen.addEventListener('click', async () => {
+    elDialog.showModal();
+    await loadBriefingsFromServer();
+  });
+
+  btnClose?.addEventListener('click', () => elDialog.close());
+  btnDone?.addEventListener('click', () => elDialog.close());
+
+  document.querySelectorAll('.briefing-scope-tab').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      briefingState.activeScope = tab.dataset.briefingScope || 'unread';
+      renderBriefingView();
+    });
+  });
+
+  selectModel?.addEventListener('change', async () => {
+    await fetch('/api/briefings/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: selectModel.value })
+    });
+    briefingState.status.preferredModel = selectModel.value;
+  });
+
+  btnRegen?.addEventListener('click', async () => {
+    btnRegen.disabled = true;
+    btnRegen.textContent = 'Analizando y redactando...';
+    try {
+      const res = await fetch('/api/briefings/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scope: briefingState.activeScope,
+          model: selectModel ? selectModel.value : undefined
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        briefingState.reports = data.reports || briefingState.reports;
+        if (data.status) briefingState.status = data.status;
+        await renderBriefingView();
+      }
+    } finally {
+      btnRegen.disabled = false;
+      btnRegen.textContent = '↻ Actualizar informe ahora';
+    }
+  });
+
+  btnRegenAll?.addEventListener('click', async () => {
+    btnRegenAll.disabled = true;
+    btnRegenAll.textContent = 'Recalculando los 4 informes...';
+    try {
+      const res = await fetch('/api/briefings/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scope: 'all',
+          model: selectModel ? selectModel.value : undefined
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        briefingState.reports = data.reports || briefingState.reports;
+        if (data.status) briefingState.status = data.status;
+        await renderBriefingView();
+      }
+    } finally {
+      btnRegenAll.disabled = false;
+      btnRegenAll.textContent = '↻ Recalcular los 4 informes (1h / 12h / 24h / Actuales)';
+    }
+  });
 }
 
 // ============================================================================
@@ -1647,6 +2050,7 @@ async function bootstrap() {
   bindEvents();
   const gpuReady = await gpuMedia.init();
   if (gpuReady) {
+    await gpuBriefing.init(gpuMedia.device);
     elGpuBadge.textContent = 'WebGPU · WGSL';
     elGpuBadge.classList.add('active');
   } else {

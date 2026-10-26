@@ -82,6 +82,41 @@ db.exec(`
     feed_title,
     note
   );
+
+  CREATE TABLE IF NOT EXISTS articles_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    article_id INTEGER DEFAULT 0,
+    feed_id INTEGER NOT NULL,
+    feed_title TEXT DEFAULT '',
+    category_id INTEGER DEFAULT 0,
+    category_name TEXT DEFAULT '',
+    guid TEXT NOT NULL,
+    title TEXT NOT NULL,
+    link TEXT NOT NULL,
+    pub_date TEXT NOT NULL,
+    published_ts INTEGER NOT NULL,
+    excerpt TEXT DEFAULT '',
+    content_html TEXT DEFAULT '',
+    norm_title TEXT DEFAULT '',
+    created_at INTEGER NOT NULL,
+    UNIQUE(feed_id, guid)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_history_published ON articles_history(published_ts DESC);
+  CREATE INDEX IF NOT EXISTS idx_history_norm_title ON articles_history(norm_title);
+
+  CREATE TABLE IF NOT EXISTS briefing_reports (
+    scope TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    total_articles INTEGER DEFAULT 0,
+    clusters_json TEXT NOT NULL,
+    categories_json TEXT NOT NULL,
+    ai_markdown TEXT DEFAULT '',
+    ai_model TEXT DEFAULT '',
+    ai_status TEXT DEFAULT 'ready',
+    generation_ms INTEGER DEFAULT 0,
+    updated_at INTEGER NOT NULL
+  );
 `);
 
 try {
@@ -214,6 +249,63 @@ function purgeDuplicatesAndDismissedOnStartup() {
 }
 
 purgeDuplicatesAndDismissedOnStartup();
+
+// Sincronizar archivo histórico de 72h (para informes de 1h, 12h y 24h aunque las noticias ya se hayan leído)
+const upsertHistoryStmt = db.prepare(`
+  INSERT OR REPLACE INTO articles_history (
+    article_id, feed_id, feed_title, category_id, category_name,
+    guid, title, link, pub_date, published_ts, excerpt, content_html, norm_title, created_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`);
+
+function recordArticleInHistory(item, feedRow, catName = '', articleId = 0) {
+  if (!item || !feedRow) return;
+  const cutoff72h = Date.now() - 72 * 3600 * 1000;
+  const pubTs = Number(item.published_ts ?? item.publishedTs) || Date.now();
+  if (pubTs < cutoff72h) return;
+  try {
+    upsertHistoryStmt.run(
+      Number(articleId || item.id || 0),
+      Number(feedRow.id || item.feed_id || 0),
+      String(feedRow.title || item.feed_title || ''),
+      Number(feedRow.category_id || item.category_id || 0),
+      String(catName || item.category_name || ''),
+      String(item.guid || ''),
+      String(item.title || ''),
+      String(item.link || ''),
+      String(item.pub_date || item.pubDate || new Date(pubTs).toISOString()),
+      pubTs,
+      String(item.excerpt || ''),
+      String(item.content_html || item.contentHtml || ''),
+      normalizeArticleTitleKey(item.title),
+      Number(item.created_at || Date.now())
+    );
+  } catch {}
+}
+
+function seedAndPruneArticlesHistory() {
+  const cutoff72h = Date.now() - 72 * 3600 * 1000;
+  db.prepare('DELETE FROM articles_history WHERE published_ts < ?').run(cutoff72h);
+  const currentRows = db
+    .prepare(`
+      SELECT a.*, f.title AS feed_title, f.category_id, c.name AS category_name
+      FROM articles a
+      JOIN feeds f ON f.id = a.feed_id
+      JOIN categories c ON c.id = f.category_id
+      WHERE a.published_ts >= ?
+    `)
+    .all(cutoff72h);
+  for (const r of currentRows) {
+    recordArticleInHistory(
+      r,
+      { id: r.feed_id, title: r.feed_title, category_id: r.category_id },
+      r.category_name,
+      r.id
+    );
+  }
+}
+
+seedAndPruneArticlesHistory();
 
 const recentDismissedBatches = [];
 const MAX_UNDO_BATCHES = 20;
@@ -1240,6 +1332,8 @@ async function syncSingleFeed(feedRow, preloadedXml = null) {
       );
 
       insertFts.run(result.lastInsertRowid, item.title, item.excerpt || '', feedRow.title);
+      const catRowObj = db.prepare('SELECT name FROM categories WHERE id = ?').get(feedRow.category_id);
+      recordArticleInHistory(item, feedRow, catRowObj ? catRowObj.name : '', result.lastInsertRowid);
       addedCount++;
     }
 
@@ -1282,6 +1376,8 @@ async function syncFeedsBatch(feedsList, concurrency = 8) {
     const workers = Array.from({ length: Math.min(concurrency, feedsList.length) }, () => worker());
     await Promise.all(workers);
     enrichMissingArticleImages().catch(() => {});
+    const shouldRunFullHourly = Date.now() - briefingStatus.lastHourlyRunAt >= 55 * 60 * 1000;
+    runHourlyBriefingsMonitor({ forceOllama: shouldRunFullHourly }).catch(() => {});
   } finally {
     syncStatus.isSyncing = false;
     syncStatus.currentFeedTitle = '';
@@ -1517,6 +1613,7 @@ function markArticlesReadAndDeleteImmediate(articleIds, options = {}) {
     };
     backupArticles.push(enriched);
     rememberRecentlyReadArticle(enriched);
+    recordArticleInHistory(enriched, { id: row.feed_id, title: enriched.feed_title }, '', row.id);
 
     const normTitle = normalizeArticleTitleKey(row.title);
     const normLink = normalizeArticleLinkKey(row.link);
@@ -1603,6 +1700,1053 @@ async function extractReadableArticle(articleUrl) {
     }
   }
   return paragraphs.slice(0, 45);
+}
+
+// ============================================================================
+// Motor Agéntico Local de Monitoreo Horario e Informes (Gemma 4 + Clustering)
+// ============================================================================
+
+const BRIEFING_SCOPES = {
+  unread: { key: 'unread', title: 'Actuales (No leídas)', hours: null },
+  '1h': { key: '1h', title: 'Última hora (1h)', hours: 1 },
+  '12h': { key: '12h', title: 'Últimas 12 horas', hours: 12 },
+  '24h': { key: '24h', title: 'Últimas 24 horas', hours: 24 }
+};
+
+const BILINGUAL_STOPWORDS = new Set([
+  'the','and','for','that','with','from','this','are','was','will','have','has','not','but','what','all','were','when',
+  'can','more','out','new','about','into','than','its','over','after','how','who','why','you','your','our','their','his',
+  'her','they','them','been','being','just','could','would','should','also','says','said','amid','while','after','before',
+  'para','con','los','las','del','una','por','como','más','pero','sus','este','esta','entre','cuando','todo','son','dos',
+  'también','fue','había','muy','años','hasta','desde','está','porque','qué','sólo','han','hay','vez','puede','todos',
+  'así','nos','parte','tiene','donde','bien','tiempo','mismo','ese','ahora','cada','vida','otro','después','otros',
+  'aunque','esa','eso','hace','otra','tan','durante','siempre','día','tanto','ella','tres','dijo','sido','gran','país',
+  'según','menos','mundo','año','antes','estado','contra','sino','forma','caso','nada','hacer','general','estaba','poco',
+  'estos','mayor','ante','unos','les','algo','hacia','ayer','hecho','primera','mucho','mientras','además','quien',
+  'momento','esto','están','pues','hoy','lugar','otras','mejor','nuevo','decir','algunos','entonces','todas','días',
+  'debe','cómo','casi','toda','tal','luego','pasado','primer','medio','estas','sea','tenía','nunca','aquí','ver','veces',
+  'embargo','personas','grupo','cuenta','pueden','tienen','misma','nueva','cual','fueron','frente','tras','cosas','fin',
+  'manera','tener','será','muchos','tipo','cuatro','dentro','nuestro','punto','dice','ello','cualquier','parece','haber',
+  'fuera','bajo','grandes','nuestra','ejemplo','habían','hizo','nadie','horas','posible','tarde','lado','allí','eran',
+  'estar','unas','final','través','último','modo','cinco','algunas','todavía','meses','esos','nosotros','hora','muchas',
+  'alguna','dar','podría','sería','junto','aquel','cuanto','segundo','dicho','cierto','casos','nivel','podía','largo',
+  'partir','falta','llegar','propio','cosa','primero','hemos','trata','algún','tuvo','respecto','semana','varios','real',
+  'paso','mil','quienes','mayoría','claro','iba','éste','buena','quiere','aquella','van','esas','segunda','puesto','ahí',
+  'propia','igual','últimos','ellas','total','creo','tengo','solo','único','pesar','sabe','tampoco','ningún','vista',
+  'buen','hubiera','saber','razón','noticias','alerta','google','news','reddit','com','www','http','https'
+]);
+
+// Equivalencias canónicas bilingües (ES <-> EN) para fusionar clústeres de una misma noticia internacional
+const BILINGUAL_CANONICAL_MAP = new Map([
+  ['bolsa', 'ipo_market'],
+  ['opi', 'ipo_market'],
+  ['ipo', 'ipo_market'],
+  ['nasdaq', 'ipo_market'],
+  ['cotizará', 'ipo_market'],
+  ['cotizar', 'ipo_market'],
+  ['s1', 'ipo_market'],
+  ['filing', 'ipo_market'],
+  ['filed', 'ipo_market'],
+  ['files', 'ipo_market'],
+  ['public', 'ipo_market'],
+  ['billones', 'valuation_scale'],
+  ['trillion', 'valuation_scale'],
+  ['billion', 'valuation_scale'],
+  ['millones', 'valuation_scale'],
+  ['valoración', 'valuation_scale'],
+  ['valuation', 'valuation_scale'],
+  ['pérdidas', 'loss_metric'],
+  ['pérdida', 'loss_metric'],
+  ['loss', 'loss_metric'],
+  ['losses', 'loss_metric'],
+  ['ingresos', 'revenue_metric'],
+  ['revenue', 'revenue_metric'],
+  ['demanda', 'lawsuit_legal'],
+  ['demandan', 'lawsuit_legal'],
+  ['demandada', 'lawsuit_legal'],
+  ['sued', 'lawsuit_legal'],
+  ['sues', 'lawsuit_legal'],
+  ['lawsuit', 'lawsuit_legal'],
+  ['copyright', 'lawsuit_legal'],
+  ['canciones', 'music_rights'],
+  ['música', 'music_rights'],
+  ['music', 'music_rights'],
+  ['songs', 'music_rights'],
+  ['votantes', 'election_data'],
+  ['electorales', 'election_data'],
+  ['electoral', 'election_data'],
+  ['elecciones', 'election_data'],
+  ['election', 'election_data'],
+  ['voter', 'election_data'],
+  ['voters', 'election_data'],
+  ['accedió', 'unauthorized_access'],
+  ['accessed', 'unauthorized_access'],
+  ['unauthorized', 'unauthorized_access'],
+  ['autorización', 'unauthorized_access'],
+  ['paywall', 'unauthorized_access'],
+  ['inversores', 'investors_risk'],
+  ['investors', 'investors_risk']
+]);
+
+const briefingFullTextCache = new Map();
+db.exec(`
+  CREATE TABLE IF NOT EXISTS translations_cache (
+    src_text TEXT PRIMARY KEY,
+    es_text TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+`);
+const getCachedTransStmt = db.prepare('SELECT es_text FROM translations_cache WHERE src_text = ?');
+const setCachedTransStmt = db.prepare(
+  'INSERT OR REPLACE INTO translations_cache (src_text, es_text, updated_at) VALUES (?, ?, ?)'
+);
+
+function isLikelyEnglishText(text) {
+  if (!text || text.length < 8) return false;
+  // Ignorar etiquetas de versión puras sin espacios (ej. rust-v0.165.0-alpha.2)
+  if (!/\s/.test(text.trim())) return false;
+  const hasSaxonGenitive = /\b[a-z0-9]+['’]s\b/i.test(text);
+  const esAccents = (text.match(/[áéíóúñ¿¡]/gi) || []).length;
+  const esHits = (
+    text.match(
+      /\b(de|la|el|en|los|las|del|por|para|con|una|un|al|se|su|sus|como|pero|sobre|tras|ante|entre|hasta|desde|sin|son|fue|fueron|ha|han|hay|esta|este|estos|estas|todo|todos|puede|pueden|hace|hacen|contra|hacia|durante|mediante|según|más|también|así|ya|no|sí|qué|cómo|cuándo|dónde|quién)\b/gi
+    ) || []
+  ).length;
+  const enHits = (
+    text.match(
+      /\b(the|and|for|with|from|that|this|after|over|into|amid|while|its|his|her|their|our|your|says|said|files|filed|filing|warns|shows|claims|launches|launched|accessed|access|without|against|could|would|should|new|how|why|what|when|where|who|biggest|bigger|first|last|next|year|years|half|loss|losses|revenue|billion|trillion|million|sued|sues|lawsuit|models|model|training|train|trained|data|in|on|to|of|at|by|as|is|are|was|were|be|been|up|out|off|about|inside|under|between|through|during|before|since|until|despite|towards|open|source|free|vs|caution|input|output|params|steps|tutorial|guide|coding|agents|agent|weakened|misalignment|monitoring|quiet|jump|tops|weekly|usage|rankings|token|volume|surges|surge|cheeky|quip|python|campaign|ally|blushes|comments|crossed|paywall|own|deal|even|knew|voter|voting|election|officials|public|songs|used|permission|former|staffers|startup|hacked|things|can|do|backed|features|testing|aimed|other|kernels|monday|tuesday|wednesday|thursday|friday|saturday|sunday|long|awaited|unveils|time|wall|street|stock|shares|market|report|reports|users|release|released|cut|cuts|live|internet|stop|rogue|attacks|experimental|removed)\b/gi
+    ) || []
+  ).length;
+  if (hasSaxonGenitive && esAccents === 0) return true;
+  if (esAccents === 0 && esHits === 0) return true;
+  return enHits >= 1 && enHits > esHits;
+}
+
+function translateToSpanishFallback(text) {
+  if (!text || !isLikelyEnglishText(text)) return text;
+  const cached = getCachedTransStmt.get(text);
+  if (cached && cached.es_text) return cached.es_text;
+  return text;
+}
+
+async function translateClustersToSpanishWithOllama(clusters, categoriesBreakdown, modelOverride = null) {
+  const toTranslate = [];
+  const seen = new Set();
+
+  function collectIfEnglish(str) {
+    const clean = String(str || '').trim();
+    if (!clean || clean.length < 8) return;
+    if (!isLikelyEnglishText(clean)) return;
+    const cached = getCachedTransStmt.get(clean);
+    if (cached && cached.es_text) return;
+    if (!seen.has(clean)) {
+      seen.add(clean);
+      toTranslate.push(clean);
+    }
+  }
+
+  for (const cl of clusters) {
+    collectIfEnglish(cl.title);
+    if (cl.leadExcerpt) collectIfEnglish(cl.leadExcerpt.slice(0, 260));
+    if (cl.deepParagraphs && cl.deepParagraphs[0]) {
+      collectIfEnglish(cl.deepParagraphs[0].slice(0, 280));
+    }
+    for (const sa of (cl.sampleArticles || []).slice(0, 5)) {
+      collectIfEnglish(sa.title);
+    }
+  }
+  for (const cat of categoriesBreakdown || []) {
+    for (const st of (cat.topStories || []).slice(0, 3)) {
+      collectIfEnglish(st.title);
+    }
+  }
+
+  if (toTranslate.length > 0 && briefingStatus.ollamaOnline) {
+    const chosenModel = modelOverride || getPreferredOllamaModel();
+    const batchSize = 22;
+    const now = Date.now();
+
+    for (let i = 0; i < Math.min(toTranslate.length, 66); i += batchSize) {
+      const batch = toTranslate.slice(i, i + batchSize);
+      const numberedInput = batch.map((t, idx) => `[${idx + 1}] ${t}`).join('\n');
+      const prompt = `Traduce fielmente al ESPAÑOL los siguientes titulares y extractos de noticias tecnológicas/financieras. Mantén nombres propios (Anthropic, Claude, OpenAI, SpaceX, xAI, DeepSeek, Qwen, Mistral, S-1, IPO/OPI, Nasdaq) y cifras exactas. Devuelve ÚNICAMENTE las líneas traducidas con su mismo número [1], [2], etc., sin introducciones ni comentarios:\n\n${numberedInput}`;
+
+      try {
+        const res = await fetchWithTimeout(
+          'http://127.0.0.1:11434/api/chat',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: chosenModel,
+              stream: false,
+              think: false,
+              options: { temperature: 0.1, num_ctx: 4096 },
+              messages: [
+                {
+                  role: 'system',
+                  content: 'Eres un traductor periodístico profesional inglés-español. Solo respondes con las líneas numeradas traducidas.'
+                },
+                { role: 'user', content: prompt }
+              ]
+            })
+          },
+          30000
+        );
+        if (res.ok) {
+          const data = await res.json();
+          let out = (data?.message?.content || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+          const lines = out.split('\n');
+          for (const line of lines) {
+            const m = line.trim().match(/^(?:\*\*|\[|\s)*(\d+)(?:\]|\)|\s|\.|:|-|\*)+(.+)$/);
+            if (m) {
+              const idx = Number(m[1]) - 1;
+              const translated = m[2].replace(/^["«*]+|["»*]+$/g, '').trim();
+              if (batch[idx] && translated.length >= 6) {
+                setCachedTransStmt.run(batch[idx], translated, now);
+              }
+            }
+          }
+        }
+      } catch {}
+    }
+  }
+
+  // Aplicar traducciones en caché a todos los clústeres y categorías
+  const applyCached = (str) => {
+    const clean = String(str || '').trim();
+    if (!clean) return clean;
+    const row = getCachedTransStmt.get(clean);
+    return row && row.es_text ? row.es_text : clean;
+  };
+
+  for (const cl of clusters) {
+    cl.title = applyCached(cl.title);
+    if (cl.leadExcerpt) {
+      const sliceKey = cl.leadExcerpt.slice(0, 260).trim();
+      const row = getCachedTransStmt.get(sliceKey);
+      if (row && row.es_text) cl.leadExcerpt = row.es_text;
+    }
+    if (cl.deepParagraphs && cl.deepParagraphs[0]) {
+      const dpKey = cl.deepParagraphs[0].slice(0, 280).trim();
+      const row = getCachedTransStmt.get(dpKey);
+      if (row && row.es_text) cl.deepParagraphs[0] = row.es_text;
+    }
+    for (const sa of cl.sampleArticles || []) {
+      sa.title = applyCached(sa.title);
+    }
+  }
+  for (const cat of categoriesBreakdown || []) {
+    for (const st of cat.topStories || []) {
+      st.title = applyCached(st.title);
+    }
+  }
+}
+const briefingStatus = {
+  isGenerating: false,
+  lastHourlyRunAt: 0,
+  preferredModel: 'gemma4:12b',
+  availableModels: [],
+  ollamaOnline: false
+};
+
+function getPreferredOllamaModel() {
+  try {
+    const row = db.prepare("SELECT value FROM meta_settings WHERE key = 'briefing_ollama_model'").get();
+    if (row && row.value) return row.value;
+  } catch {}
+  return briefingStatus.preferredModel || 'gemma4:12b';
+}
+
+function setPreferredOllamaModel(modelName) {
+  const clean = String(modelName || '').trim() || 'gemma4:12b';
+  briefingStatus.preferredModel = clean;
+  db.prepare("INSERT OR REPLACE INTO meta_settings (key, value) VALUES ('briefing_ollama_model', ?)").run(clean);
+}
+
+async function detectLocalOllamaModels() {
+  try {
+    const res = await fetchWithTimeout('http://127.0.0.1:11434/api/tags', {}, 1800);
+    if (!res.ok) {
+      briefingStatus.ollamaOnline = false;
+      return [];
+    }
+    const data = await res.json();
+    const models = Array.isArray(data.models)
+      ? data.models.map((m) => m.name).filter(Boolean)
+      : [];
+    briefingStatus.ollamaOnline = true;
+    briefingStatus.availableModels = models;
+
+    const currentPref = getPreferredOllamaModel();
+    if (models.length > 0 && !models.includes(currentPref)) {
+      const gemma4Pick =
+        models.find((m) => /gemma4.*(12b|26b)/i.test(m)) ||
+        models.find((m) => /gemma4/i.test(m)) ||
+        models.find((m) => /gemma/i.test(m)) ||
+        models.find((m) => /qwen3/i.test(m)) ||
+        models[0];
+      if (gemma4Pick) {
+        setPreferredOllamaModel(gemma4Pick);
+      }
+    }
+    return models;
+  } catch {
+    briefingStatus.ollamaOnline = false;
+    return [];
+  }
+}
+
+function tokenizeForClustering(title, excerpt = '') {
+  const cleanTitle = String(title || '')
+    .toLowerCase()
+    .replace(/\s+[-–—|]\s+[^-–—|]{2,50}$/, '')
+    .replace(/s-1/g, 's1');
+
+  const rawWords = cleanTitle
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length >= 3 && !BILINGUAL_STOPWORDS.has(w));
+
+  const tokenSet = new Set();
+  for (const w of rawWords) {
+    const canonical = BILINGUAL_CANONICAL_MAP.get(w) || w;
+    tokenSet.add(canonical);
+  }
+
+  // Añadir entidades clave del extracto si existen
+  if (excerpt) {
+    const exWords = String(excerpt)
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, ' ')
+      .split(/\s+/)
+      .filter((w) => BILINGUAL_CANONICAL_MAP.has(w));
+    for (const ew of exWords) {
+      tokenSet.add(BILINGUAL_CANONICAL_MAP.get(ew));
+    }
+  }
+
+  return tokenSet;
+}
+
+function cleanSourceName(title, feedTitle) {
+  const trailingMatch = String(title || '').match(/\s+[-–—|]\s+([^-–—|]{2,42})$/);
+  if (trailingMatch && trailingMatch[1]) {
+    return trailingMatch[1].trim();
+  }
+  return String(feedTitle || 'Fuente RSS')
+    .replace(/\s*\(Alerta.*?\)/i, '')
+    .replace(/^Alerta:\s*/i, '')
+    .trim();
+}
+
+function stripTrailingSourceFromTitle(title) {
+  return String(title || '')
+    .replace(/\s+[-–—|]\s+[^-–—|]{2,45}$/, '')
+    .trim();
+}
+
+function queryArticlesForBriefingScope(scopeKey, categoryId = null) {
+  const now = Date.now();
+  const activeUnreadMap = new Map();
+  const unreadRows = db
+    .prepare(`
+      SELECT a.id, a.guid, a.title, a.link, a.pub_date, a.published_ts, a.excerpt,
+             a.feed_id, f.title AS feed_title, f.category_id, c.name AS category_name
+      FROM articles a
+      JOIN feeds f ON f.id = a.feed_id
+      JOIN categories c ON c.id = f.category_id
+      ORDER BY a.published_ts DESC
+    `)
+    .all();
+
+  for (const r of unreadRows) {
+    activeUnreadMap.set(`${r.feed_id}::${r.guid}`, r.id);
+  }
+
+  if (scopeKey === 'unread') {
+    if (categoryId) {
+      return unreadRows
+        .filter((r) => Number(r.category_id) === Number(categoryId))
+        .map((r) => ({ ...r, unread_id: r.id }));
+    }
+    return unreadRows.map((r) => ({ ...r, unread_id: r.id }));
+  }
+
+  const scopeDef = BRIEFING_SCOPES[scopeKey] || BRIEFING_SCOPES['24h'];
+  const cutoffTs = now - (scopeDef.hours || 24) * 3600 * 1000;
+
+  let historyRows = db
+    .prepare(`
+      SELECT h.*
+      FROM articles_history h
+      WHERE h.published_ts >= ?
+      ORDER BY h.published_ts DESC
+    `)
+    .all(cutoffTs);
+
+  // Si en "Última hora" hay muy pocas noticias con pubDate de los últimos 60 min (por desfase horario RSS),
+  // incluir también las sincronizadas/recibidas durante la última hora
+  if (scopeKey === '1h' && historyRows.length < 8) {
+    historyRows = db
+      .prepare(`
+        SELECT h.*
+        FROM articles_history h
+        WHERE h.published_ts >= ? OR h.created_at >= ?
+        ORDER BY h.published_ts DESC
+        LIMIT 140
+      `)
+      .all(cutoffTs, cutoffTs);
+  }
+
+  if (categoryId) {
+    historyRows = historyRows.filter((r) => Number(r.category_id) === Number(categoryId));
+  }
+
+  return historyRows.map((r) => ({
+    id: r.article_id || r.id,
+    unread_id: activeUnreadMap.get(`${r.feed_id}::${r.guid}`) || null,
+    guid: r.guid,
+    title: r.title,
+    link: r.link,
+    pub_date: r.pub_date,
+    published_ts: r.published_ts,
+    excerpt: r.excerpt,
+    feed_id: r.feed_id,
+    feed_title: r.feed_title,
+    category_id: r.category_id,
+    category_name: r.category_name
+  }));
+}
+
+function cleanExcerptText(excerpt, title = '') {
+  if (!excerpt) return '';
+  let txt = String(excerpt)
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&#160;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const baseTitle = stripTrailingSourceFromTitle(title);
+  if (baseTitle && txt.toLowerCase().startsWith(baseTitle.toLowerCase().slice(0, 32))) {
+    return '';
+  }
+  return txt;
+}
+
+const BROAD_ACTOR_TOKENS = new Set([
+  'anthropic','claude','openai','chatgpt','google','gemini','apple','meta','microsoft','nvidia',
+  'inteligencia','artificial','model','models','modelo','modelos'
+]);
+
+function buildTopicClusters(rows) {
+  const now = Date.now();
+  const clusters = [];
+
+  for (const row of rows) {
+    const tks = tokenizeForClustering(row.title, row.excerpt);
+    if (tks.size === 0) continue;
+
+    let bestCluster = null;
+    let bestScore = 0;
+
+    for (const cl of clusters) {
+      let overlap = 0;
+      let specificEventOverlap = 0;
+      let canonicalOverlap = 0;
+      for (const t of tks) {
+        if (cl.anchorTokens.has(t)) {
+          overlap++;
+          if (!BROAD_ACTOR_TOKENS.has(t)) specificEventOverlap++;
+          if (t.includes('_')) canonicalOverlap++;
+        } else if (cl.allTokens.has(t)) {
+          overlap += 0.6;
+          if (!BROAD_ACTOR_TOKENS.has(t)) specificEventOverlap += 0.6;
+          if (t.includes('_')) canonicalOverlap += 0.7;
+        }
+      }
+      const minLen = Math.max(1, Math.min(tks.size, cl.anchorTokens.size));
+      const sim = overlap / minLen;
+
+      if (
+        specificEventOverlap >= 1 &&
+        ((overlap >= 2.0 && sim >= 0.34) || (canonicalOverlap >= 1 && overlap >= 1.8 && sim >= 0.26))
+      ) {
+        if (sim > bestScore) {
+          bestScore = sim;
+          bestCluster = cl;
+        }
+      }
+    }
+
+    if (bestCluster) {
+      bestCluster.items.push(row);
+      if (bestCluster.items.length <= 5) {
+        for (const t of tks) bestCluster.anchorTokens.add(t);
+      }
+      for (const t of tks) {
+        bestCluster.allTokens.add(t);
+        bestCluster.tokenFreq.set(t, (bestCluster.tokenFreq.get(t) || 0) + 1);
+      }
+    } else {
+      const tokenFreq = new Map();
+      for (const t of tks) tokenFreq.set(t, 1);
+      clusters.push({
+        anchorTokens: new Set(tks),
+        allTokens: new Set(tks),
+        tokenFreq,
+        items: [row]
+      });
+    }
+  }
+
+  const enrichedClusters = clusters.map((cl, idx) => {
+    const uniqueSources = new Set();
+    const unreadIds = new Set();
+    const categoriesFreq = new Map();
+    let newestTs = 0;
+
+    for (const it of cl.items) {
+      uniqueSources.add(cleanSourceName(it.title, it.feed_title));
+      if (it.unread_id) unreadIds.add(it.unread_id);
+      if (it.category_name) {
+        categoriesFreq.set(it.category_name, (categoriesFreq.get(it.category_name) || 0) + 1);
+      }
+      if ((Number(it.published_ts) || 0) > newestTs) {
+        newestTs = Number(it.published_ts) || 0;
+      }
+    }
+
+    // Elegir el mejor artículo de portada para el clúster (preferencia español o con buen extracto)
+    const sortedRep = [...cl.items].sort((a, b) => {
+      const aEs = /[áéíóúñ¿¡]|(\b(de|la|el|en|con|por|para|bolsa|demanda)\b)/i.test(a.title) ? 1 : 0;
+      const bEs = /[áéíóúñ¿¡]|(\b(de|la|el|en|con|por|para|bolsa|demanda)\b)/i.test(b.title) ? 1 : 0;
+      if (aEs !== bEs) return bEs - aEs;
+      const aEx = cleanExcerptText(a.excerpt, a.title).length > 40 ? 1 : 0;
+      const bEx = cleanExcerptText(b.excerpt, b.title).length > 40 ? 1 : 0;
+      if (aEx !== bEx) return bEx - aEx;
+      return (Number(b.published_ts) || 0) - (Number(a.published_ts) || 0);
+    });
+
+    const lead = sortedRep[0] || cl.items[0];
+    const dominantCategory =
+      [...categoriesFreq.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ||
+      lead.category_name ||
+      'General';
+
+    const ageHours = Math.max(0.2, (now - (newestTs || now)) / (3600 * 1000));
+    const recencyMultiplier = ageHours <= 2 ? 1.35 : ageHours <= 6 ? 1.2 : ageHours <= 12 ? 1.05 : 0.9;
+    const isTechnicalCategory =
+      !dominantCategory.startsWith('3.') && !dominantCategory.startsWith('6.') ? 1.25 : 1.0;
+
+    // Penalizar series repetitivas de una única web frente a noticias confirmadas por múltiples medios
+    const effectiveArticles = uniqueSources.size <= 1 ? Math.min(2, cl.items.length) : cl.items.length;
+    const multiSourceBonus = uniqueSources.size >= 3 ? uniqueSources.size * 22 : uniqueSources.size * 12;
+    const rawImpact =
+      (multiSourceBonus + effectiveArticles * 9) * recencyMultiplier * isTechnicalCategory;
+
+    const topKeywords = [...cl.tokenFreq.entries()]
+      .filter(([k]) => !k.includes('_') && k.length >= 4)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([k]) => k);
+
+    // Artículos de muestra sin repetir titulares idénticos
+    const sampleArticles = [];
+    const seenSampleTitles = new Set();
+    let bestLeadExcerpt = cleanExcerptText(lead.excerpt, lead.title);
+
+    for (const item of cl.items) {
+      const cleanedEx = cleanExcerptText(item.excerpt, item.title);
+      if (!bestLeadExcerpt && cleanedEx.length > 45) {
+        bestLeadExcerpt = cleanedEx;
+      }
+      const nt = normalizeArticleTitleKey(item.title).slice(0, 35);
+      if (seenSampleTitles.has(nt)) continue;
+      seenSampleTitles.add(nt);
+      sampleArticles.push({
+        id: item.unread_id || item.id,
+        unreadId: item.unread_id || null,
+        title: stripTrailingSourceFromTitle(item.title),
+        source: cleanSourceName(item.title, item.feed_title),
+        feedTitle: item.feed_title,
+        link: item.link,
+        publishedTs: item.published_ts,
+        excerpt: cleanedEx
+      });
+      if (sampleArticles.length >= 7) break;
+    }
+
+    return {
+      clusterId: `cl_${idx}_${lead.id || 0}`,
+      title: stripTrailingSourceFromTitle(lead.title),
+      leadSource: cleanSourceName(lead.title, lead.feed_title),
+      leadLink: lead.link,
+      leadExcerpt: bestLeadExcerpt,
+      category: dominantCategory,
+      articleCount: cl.items.length,
+      sourceCount: uniqueSources.size,
+      sources: Array.from(uniqueSources).slice(0, 10),
+      unreadIds: Array.from(unreadIds),
+      newestTs,
+      impactScore: Math.round(rawImpact),
+      keywords: topKeywords,
+      sampleArticles,
+      deepParagraphs: []
+    };
+  });
+
+  enrichedClusters.sort((a, b) => b.impactScore - a.impactScore || b.articleCount - a.articleCount);
+  return enrichedClusters;
+}
+
+async function enrichTopClustersWithDeepRead(clusters, maxClusters = 4) {
+  const targets = clusters.slice(0, maxClusters);
+  await Promise.all(
+    targets.map(async (cl) => {
+      for (const sample of cl.sampleArticles.slice(0, 2)) {
+        if (!sample.link || sample.link.includes('news.google.com/rss/articles/')) continue;
+        if (briefingFullTextCache.has(sample.link)) {
+          cl.deepParagraphs = briefingFullTextCache.get(sample.link);
+          return;
+        }
+        try {
+          const paras = await Promise.race([
+            extractReadableArticle(sample.link),
+            new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 2800))
+          ]);
+          if (Array.isArray(paras) && paras.length > 0) {
+            const cleanParas = paras
+              .map((p) => p.text)
+              .filter((t) => t && t.length >= 60)
+              .slice(0, 3);
+            if (cleanParas.length > 0) {
+              briefingFullTextCache.set(sample.link, cleanParas);
+              cl.deepParagraphs = cleanParas;
+              return;
+            }
+          }
+        } catch {}
+      }
+    })
+  );
+}
+
+function buildCategoryBreakdown(rows) {
+  const byCat = new Map();
+  for (const r of rows) {
+    const cat = r.category_name || 'General';
+    if (!byCat.has(cat)) {
+      byCat.set(cat, []);
+    }
+    byCat.get(cat).push(r);
+  }
+
+  const result = [];
+  for (const [catName, items] of byCat.entries()) {
+    const catClusters = buildTopicClusters(items);
+    result.push({
+      category: catName,
+      totalArticles: items.length,
+      topStories: catClusters.slice(0, 4).map((c) => ({
+        title: c.title,
+        source: c.leadSource,
+        link: c.leadLink,
+        articleCount: c.articleCount,
+        unreadIds: c.unreadIds,
+        sampleId: c.sampleArticles[0]?.id || null,
+        excerpt: c.leadExcerpt ? c.leadExcerpt.slice(0, 180) : ''
+      }))
+    });
+  }
+
+  result.sort((a, b) => a.category.localeCompare(b.category, 'es'));
+  return result;
+}
+
+function buildClusterShortDescription(cl) {
+  if (cl.deepParagraphs && cl.deepParagraphs.length > 0) {
+    return cl.deepParagraphs[0].slice(0, 300) + (cl.deepParagraphs[0].length > 300 ? '…' : '');
+  }
+  if (cl.leadExcerpt && cl.leadExcerpt.length >= 25) {
+    return cl.leadExcerpt.slice(0, 260) + (cl.leadExcerpt.length > 260 ? '…' : '');
+  }
+  // Si el RSS era de solo titulares (ej. Google News), construir el resumen corto con los ángulos de otros medios del clúster
+  const angles = (cl.sampleArticles || [])
+    .slice(1, 4)
+    .map((sa) => sa.title)
+    .filter((t) => t && t !== cl.title);
+  if (angles.length > 0) {
+    return angles.join(' · ');
+  }
+  return '';
+}
+
+function buildStructuredExecutiveMarkdown(scopeTitle, totalArticles, clusters, categoriesBreakdown) {
+  if (totalArticles === 0 || clusters.length === 0) {
+    return `### Sin noticias registradas en «${scopeTitle}»\n\nNo se han encontrado artículos dentro de esta ventana temporal. Pulsa **Recargar** en la barra superior para sincronizar las fuentes RSS.`;
+  }
+
+  const star = clusters[0];
+  const lines = [];
+
+  lines.push(`### 🌟 Noticia Estrella del Momento`);
+  lines.push(`**${star.title}**`);
+
+  const starDesc = buildClusterShortDescription(star);
+  if (starDesc) {
+    lines.push(`${starDesc}`);
+  }
+
+  const starDetails = [];
+  for (const sa of star.sampleArticles.slice(1, 5)) {
+    if (sa.title && sa.title !== star.title) {
+      starDetails.push(`${sa.title} (*${sa.source}*)`);
+    }
+  }
+
+  if (starDetails.length > 0) {
+    lines.push(`- **Puntos clave y cobertura complementaria:**`);
+    for (const d of starDetails) {
+      lines.push(`  - ${d}`);
+    }
+  }
+
+  lines.push(
+    `- **Medios donde ha aparecido (${star.articleCount} noticias en ${star.sourceCount} medios):** ${star.sources.slice(0, 8).join(', ')}.`
+  );
+
+  if (clusters.length > 1) {
+    lines.push(`\n### 🔥 Grandes Temas en Tendencia (${scopeTitle})`);
+    for (const cl of clusters.slice(1, 8)) {
+      const shortDesc = buildClusterShortDescription(cl);
+      const descPart = shortDesc ? ` — ${shortDesc}` : '';
+      const sourcesPart = ` *(Aparecido en ${cl.articleCount} fuentes: ${cl.sources.slice(0, 5).join(', ')})*`;
+      lines.push(`- **${cl.title}**${descPart}${sourcesPart}`);
+    }
+  }
+
+  const techCats = categoriesBreakdown.filter((c) => !c.category.startsWith('3.'));
+  if (techCats.length > 0) {
+    lines.push(`\n### 📂 Radar Destacado por Carpetas Temáticas`);
+    for (const cat of techCats) {
+      if (cat.topStories.length === 0) continue;
+      lines.push(`- **${cat.category} (${cat.totalArticles} noticias):**`);
+      for (const st of cat.topStories.slice(0, 3)) {
+        const descSnippet = st.excerpt ? ` — ${st.excerpt.slice(0, 120)}${st.excerpt.length > 120 ? '…' : ''}` : '';
+        const countBadge = st.articleCount > 1 ? ` *(${st.articleCount} medios: ${st.source})*` : ` *(${st.source})*`;
+        lines.push(`  - **${st.title}**${descSnippet}${countBadge}`);
+      }
+    }
+  }
+
+  return lines.join('\n');
+}
+
+async function synthesizeWithLocalOllama(scopeTitle, totalArticles, clusters, categoriesBreakdown, modelOverride = null) {
+  const models = await detectLocalOllamaModels();
+  if (!briefingStatus.ollamaOnline || models.length === 0) {
+    return null;
+  }
+
+  const chosenModel = modelOverride || getPreferredOllamaModel();
+  const topClustersText = clusters
+    .slice(0, 10)
+    .map((c, idx) => {
+      const subTitles = c.sampleArticles
+        .slice(0, 4)
+        .map((s) => `"${s.title}" (${s.source})`)
+        .join(' | ');
+      const deep = c.deepParagraphs && c.deepParagraphs[0] ? `\n   Texto extraído: ${c.deepParagraphs[0].slice(0, 260)}` : '';
+      return `${idx + 1}. [IMPACTO: ${c.articleCount} artículos en ${c.sourceCount} medios | Categoría: ${c.category}] Titular: ${c.title}\n   Variantes y cifras en titulares: ${subTitles}\n   Extracto: ${(c.leadExcerpt || '').slice(0, 220)}${deep}`;
+    })
+    .join('\n\n');
+
+  const catsText = categoriesBreakdown
+    .filter((c) => !c.category.startsWith('3.'))
+    .map((c) => {
+      const tops = c.topStories.slice(0, 3).map((s) => `${s.title} (${s.source})`).join(' · ');
+      return `- ${c.category} (${c.totalArticles} arts): ${tops}`;
+    })
+    .join('\n');
+
+  const fechaActualEs = new Intl.DateTimeFormat('es-ES', {
+    dateStyle: 'long',
+    timeStyle: 'short'
+  }).format(new Date());
+
+  const prompt = `Fecha actual: ${fechaActualEs}.
+Analiza este dossier en vivo de ${totalArticles} noticias del lector RSS (${scopeTitle}) y redacta ÍNTEGRAMENTE EN ESPAÑOL un Informe Ejecutivo periodístico claro, denso en datos reales (fechas exactas, cifras en dólares/euros, porcentajes, nombres propios) y directo al grano. Traduce al español cualquier término o cita que esté en inglés.
+
+REGLA ESTRICTA DE FORMATO:
+Empieza tu respuesta DIRECTAMENTE con el encabezado "### 🌟 Noticia Estrella del Momento". PROHIBIDO escribir títulos previos como "# BOLETÍN EJECUTIVO", "Fecha: ..." o "Asunto: ...".
+
+ESTRUCTURA OBLIGATORIA EN MARKDOWN (Respeta este orden en cada punto: 1º Título de la noticia en español, 2º Descripción/resumen corto de los hechos en español y 3º al final los medios en los que ha aparecido):
+### 🌟 Noticia Estrella del Momento
+Pon en primer lugar el titular en negrita (en español) y una descripción clara del suceso integrando fechas, cifras y datos clave, y solo al final indica los medios donde ha aparecido.
+
+### 🔥 Grandes Temas en Tendencia
+En cada viñeta coloca SIEMPRE primero el titular en negrita (en español) seguido de una breve descripción del hecho, y deja para el final entre paréntesis los medios en los que ha aparecido.
+
+### 📂 Lo Más Destacado por Áreas Técnicas (IA, Modelos Locales, C++, Ciencia y Tecnología)
+Sintetiza las novedades técnicas clave de las carpetas especializadas indicando primero la noticia y su resumen en español, y al final la fuente.
+
+DOSSIER DE CLÚSTERES PRINCIPALES:
+${topClustersText}
+
+RADAR POR CARPETAS:
+${catsText}`;
+
+  const t0 = performance.now();
+  const res = await fetchWithTimeout(
+    'http://127.0.0.1:11434/api/chat',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: chosenModel,
+        stream: false,
+        think: false,
+        options: {
+          temperature: 0.2,
+          num_ctx: 8192
+        },
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Eres un analista jefe de inteligencia tecnológica y financiera. Redactas informes en español precisos y directos. Empiezas siempre directamente en "### 🌟 Noticia Estrella del Momento" sin cabeceras de memorando ni campos de Fecha o Asunto.'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ]
+      })
+    },
+    45000
+  );
+
+  if (!res.ok) return null;
+  const data = await res.json();
+  let content = data?.message?.content || '';
+  // Limpiar bloques <think>...</think> y cualquier cabecera de memorando previa al primer ###
+  content = content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  const firstH3 = content.indexOf('### ');
+  if (firstH3 > 0) {
+    content = content.slice(firstH3).trim();
+  }
+  content = content.replace(/\[Fecha[^\]]*\]/gi, fechaActualEs);
+  if (!content || content.length < 80) return null;
+
+  const elapsedMs = Math.round(performance.now() - t0);
+  const evalCount = Number(data?.eval_count) || 0;
+  const evalDurationSec = (Number(data?.eval_duration) || 0) / 1e9;
+  const tps = evalDurationSec > 0 ? (evalCount / evalDurationSec).toFixed(1) : null;
+
+  return {
+    markdown: content,
+    model: tps ? `${chosenModel} (${tps} t/s)` : chosenModel,
+    elapsedMs
+  };
+}
+
+const saveBriefingStmt = db.prepare(`
+  INSERT OR REPLACE INTO briefing_reports (
+    scope, title, total_articles, clusters_json, categories_json,
+    ai_markdown, ai_model, ai_status, generation_ms, updated_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`);
+
+async function generateAndStoreBriefingForScope(scopeKey, { useOllama = true, modelOverride = null, deepRead = true } = {}) {
+  const scopeDef = BRIEFING_SCOPES[scopeKey] || BRIEFING_SCOPES.unread;
+  const t0 = performance.now();
+
+  if (useOllama && !briefingStatus.ollamaOnline) {
+    await detectLocalOllamaModels();
+  }
+
+  const rows = queryArticlesForBriefingScope(scopeDef.key);
+  const clusters = buildTopicClusters(rows);
+  const categoriesBreakdown = buildCategoryBreakdown(rows);
+
+  if (deepRead && clusters.length > 0) {
+    await enrichTopClustersWithDeepRead(clusters, 3).catch(() => {});
+  }
+
+  const topClustersToSave = clusters.slice(0, 14);
+  const hasExisting = db
+    .prepare('SELECT 1 FROM briefing_reports WHERE scope = ?')
+    .get(scopeDef.key);
+
+  if (!hasExisting) {
+    const initialMd = buildStructuredExecutiveMarkdown(
+      scopeDef.title,
+      rows.length,
+      topClustersToSave,
+      categoriesBreakdown
+    );
+    saveBriefingStmt.run(
+      scopeDef.key,
+      scopeDef.title,
+      rows.length,
+      JSON.stringify(topClustersToSave),
+      JSON.stringify(categoriesBreakdown),
+      initialMd,
+      'Motor Algorítmico Local + Deep Read',
+      'ready',
+      Math.round(performance.now() - t0),
+      Date.now()
+    );
+  }
+
+  // Traducir siempre al español todos los titulares y extractos en inglés de los clústeres
+  await translateClustersToSpanishWithOllama(
+    topClustersToSave,
+    categoriesBreakdown,
+    modelOverride
+  ).catch(() => {});
+
+  const structuredMd = buildStructuredExecutiveMarkdown(
+    scopeDef.title,
+    rows.length,
+    topClustersToSave,
+    categoriesBreakdown
+  );
+
+  let finalMarkdown = structuredMd;
+  let finalModel = 'Motor Algorítmico Local + Deep Read';
+  let elapsedMs = Math.round(performance.now() - t0);
+
+  if (!useOllama || rows.length === 0) {
+    saveBriefingStmt.run(
+      scopeDef.key,
+      scopeDef.title,
+      rows.length,
+      JSON.stringify(topClustersToSave),
+      JSON.stringify(categoriesBreakdown),
+      finalMarkdown,
+      finalModel,
+      'ready',
+      elapsedMs,
+      Date.now()
+    );
+  }
+
+  if (useOllama && rows.length > 0) {
+    try {
+      const llmResult = await synthesizeWithLocalOllama(
+        scopeDef.title,
+        rows.length,
+        topClustersToSave,
+        categoriesBreakdown,
+        modelOverride
+      );
+      if (llmResult && llmResult.markdown) {
+        finalMarkdown = llmResult.markdown;
+        finalModel = llmResult.model;
+      }
+    } catch {}
+    elapsedMs = Math.round(performance.now() - t0);
+    saveBriefingStmt.run(
+      scopeDef.key,
+      scopeDef.title,
+      rows.length,
+      JSON.stringify(topClustersToSave),
+      JSON.stringify(categoriesBreakdown),
+      finalMarkdown,
+      finalModel,
+      'ready',
+      elapsedMs,
+      Date.now()
+    );
+  }
+
+  return getStoredBriefingReport(scopeDef.key);
+}
+
+function getStoredBriefingReport(scopeKey) {
+  const row = db.prepare('SELECT * FROM briefing_reports WHERE scope = ?').get(scopeKey);
+  if (!row) return null;
+  let clusters = [];
+  let categories = [];
+  try {
+    clusters = JSON.parse(row.clusters_json || '[]');
+  } catch {}
+  try {
+    categories = JSON.parse(row.categories_json || '[]');
+  } catch {}
+
+  const applyCached = (str) => {
+    const clean = String(str || '').trim();
+    if (!clean) return clean;
+    const tr = getCachedTransStmt.get(clean);
+    return tr && tr.es_text ? tr.es_text : clean;
+  };
+
+  // Sincronizar en vivo los IDs aún no leídos y aplicar traducciones en caché a cada clúster
+  const currentUnreadIdsSet = new Set(
+    db.prepare('SELECT id FROM articles').all().map((r) => r.id)
+  );
+  for (const cl of clusters) {
+    cl.title = applyCached(cl.title);
+    if (cl.leadExcerpt) {
+      cl.leadExcerpt = applyCached(cl.leadExcerpt.slice(0, 260));
+    }
+    if (cl.deepParagraphs && cl.deepParagraphs[0]) {
+      cl.deepParagraphs[0] = applyCached(cl.deepParagraphs[0].slice(0, 280));
+    }
+    for (const sa of cl.sampleArticles || []) {
+      sa.title = applyCached(sa.title);
+    }
+    cl.shortDescription = buildClusterShortDescription(cl);
+    if (Array.isArray(cl.unreadIds)) {
+      cl.unreadIds = cl.unreadIds.filter((id) => currentUnreadIdsSet.has(id));
+    }
+  }
+  for (const cat of categories) {
+    for (const st of cat.topStories || []) {
+      st.title = applyCached(st.title);
+    }
+  }
+
+  let cleanAiMarkdown = String(row.ai_markdown || '');
+  const firstH3 = cleanAiMarkdown.indexOf('### ');
+  if (firstH3 > 0) {
+    cleanAiMarkdown = cleanAiMarkdown.slice(firstH3).trim();
+  }
+
+  return {
+    scope: row.scope,
+    title: row.title,
+    totalArticles: row.total_articles,
+    clusters,
+    categories,
+    aiMarkdown: cleanAiMarkdown,
+    aiModel: row.ai_model,
+    aiStatus: row.ai_status,
+    generationMs: row.generation_ms,
+    updatedAt: row.updated_at
+  };
+}
+
+async function runHourlyBriefingsMonitor({ forceOllama = true } = {}) {
+  if (briefingStatus.isGenerating) return;
+  briefingStatus.isGenerating = true;
+  try {
+    seedAndPruneArticlesHistory();
+    await detectLocalOllamaModels();
+    for (const scopeKey of ['unread', '1h', '12h', '24h']) {
+      await generateAndStoreBriefingForScope(scopeKey, {
+        useOllama: forceOllama && briefingStatus.ollamaOnline,
+        deepRead: scopeKey === 'unread' || scopeKey === '24h'
+      });
+    }
+    briefingStatus.lastHourlyRunAt = Date.now();
+  } catch (err) {
+    console.error('Error en monitoreo horario de informes:', err);
+  } finally {
+    briefingStatus.isGenerating = false;
+  }
 }
 
 // ============================================================================
@@ -2137,6 +3281,120 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, paragraphs });
     }
 
+    // 12b. Obtener detalle individual de una noticia (desde articles, caché o histórico de 72h)
+    if (req.method === 'GET' && /^\/api\/articles\/\d+$/.test(pathname)) {
+      const articleId = Number(pathname.split('/').pop());
+      let row = db
+        .prepare(`
+          SELECT a.*, f.title AS feed_title, f.site_url AS feed_site_url, c.name AS category_name
+          FROM articles a
+          JOIN feeds f ON f.id = a.feed_id
+          JOIN categories c ON c.id = f.category_id
+          WHERE a.id = ?
+        `)
+        .get(articleId);
+
+      if (!row && recentlyReadById.has(articleId)) {
+        row = recentlyReadById.get(articleId);
+      }
+      if (!row) {
+        row = db
+          .prepare('SELECT * FROM articles_history WHERE article_id = ? OR id = ? LIMIT 1')
+          .get(articleId, articleId);
+      }
+      if (!row) return sendJson(res, 404, { error: 'Noticia no encontrada' });
+      return sendJson(res, 200, { ok: true, article: row });
+    }
+
+    // 12c. Consultar los 4 Informes Pre-elaborados (Actuales, 1h, 12h, 24h)
+    if (req.method === 'GET' && pathname === '/api/briefings') {
+      await detectLocalOllamaModels();
+
+      const reports = {};
+      for (const scopeKey of ['unread', '1h', '12h', '24h']) {
+        let rep = getStoredBriefingReport(scopeKey);
+        if (!rep) {
+          rep = await generateAndStoreBriefingForScope(scopeKey, {
+            useOllama: briefingStatus.ollamaOnline,
+            deepRead: false
+          });
+        }
+        reports[scopeKey] = rep;
+      }
+
+      // Actualizar contador vivo de no leídas sin destruir la síntesis de Gemma 4 ni las traducciones
+      if (reports.unread) {
+        const currentUnreadCount = db.prepare('SELECT COUNT(*) AS c FROM articles').get()?.c || 0;
+        reports.unread.totalArticles = currentUnreadCount;
+      }
+
+      return sendJson(res, 200, {
+        ok: true,
+        reports,
+        status: {
+          isGenerating: briefingStatus.isGenerating,
+          lastHourlyRunAt: briefingStatus.lastHourlyRunAt,
+          preferredModel: getPreferredOllamaModel(),
+          availableModels: briefingStatus.availableModels,
+          ollamaOnline: briefingStatus.ollamaOnline
+        }
+      });
+    }
+
+    // 12d. Regenerar informe con Gemma 4 / Ollama local + Deep Read bajo demanda
+    if (req.method === 'POST' && pathname === '/api/briefings/generate') {
+      const body = await readJsonBody(req);
+      const scope = body.scope || 'unread';
+      const modelOverride = body.model ? String(body.model).trim() : null;
+      if (modelOverride) {
+        setPreferredOllamaModel(modelOverride);
+      }
+
+      await detectLocalOllamaModels();
+
+      if (scope === 'all') {
+        await runHourlyBriefingsMonitor({ forceOllama: true });
+      } else {
+        await generateAndStoreBriefingForScope(scope, {
+          useOllama: true,
+          modelOverride: getPreferredOllamaModel(),
+          deepRead: true
+        });
+      }
+
+      const reports = {};
+      for (const sk of ['unread', '1h', '12h', '24h']) {
+        reports[sk] = getStoredBriefingReport(sk);
+      }
+
+      return sendJson(res, 200, {
+        ok: true,
+        reports,
+        status: {
+          isGenerating: briefingStatus.isGenerating,
+          lastHourlyRunAt: Date.now(),
+          preferredModel: getPreferredOllamaModel(),
+          availableModels: briefingStatus.availableModels,
+          ollamaOnline: briefingStatus.ollamaOnline
+        }
+      });
+    }
+
+    // 12e. Guardar preferencia de modelo local (ej. gemma4:12b, gemma4:26b)
+    if (req.method === 'POST' && pathname === '/api/briefings/settings') {
+      const body = await readJsonBody(req);
+      if (body.model) {
+        setPreferredOllamaModel(body.model);
+      }
+      await detectLocalOllamaModels();
+      return sendJson(res, 200, {
+        ok: true,
+        preferredModel: getPreferredOllamaModel(),
+        availableModels: briefingStatus.availableModels,
+        ollamaOnline: briefingStatus.ollamaOnline
+      });
+    }
+
     // 13. Importar archivo OPML manual
     if (req.method === 'POST' && pathname === '/api/opml/import') {
       const body = await readJsonBody(req);
@@ -2197,6 +3455,15 @@ server.listen(PORT, () => {
   if (!triggerAutoSyncIfNeeded(AUTO_SYNC_INTERVAL_MINUTES)) {
     enrichMissingArticleImages().catch(() => {});
   }
+  // Pre-elaborar informes al iniciar y activar monitoreo automático cada 60 minutos
+  setTimeout(() => {
+    runHourlyBriefingsMonitor({ forceOllama: true }).catch(() => {});
+  }, 1500);
+
+  setInterval(() => {
+    runHourlyBriefingsMonitor({ forceOllama: true }).catch(() => {});
+  }, 60 * 60 * 1000);
+
   // Demonio de actualización automática cada 15 minutos en segundo plano (estilo Feedly)
   setInterval(() => {
     triggerAutoSyncIfNeeded(AUTO_SYNC_INTERVAL_MINUTES);
