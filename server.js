@@ -3464,7 +3464,7 @@ server.listen(PORT, () => {
     runHourlyBriefingsMonitor({ forceOllama: true }).catch(() => {});
   }, 60 * 60 * 1000);
 
-  // Demonio de actualización automática cada 15 minutos en segundo plano (estilo Feedly)
+  // Daemon (servicio de sincronización en segundo plano) cada 15 minutos (estilo Feedly)
   setInterval(() => {
     triggerAutoSyncIfNeeded(AUTO_SYNC_INTERVAL_MINUTES);
   }, 2 * 60 * 1000);

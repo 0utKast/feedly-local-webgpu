@@ -42,7 +42,7 @@ Accesible desde el botón superior **✦ Informes en Vivo**, ofrece un centro de
 * **Procesado Fotográfico por GPU (`WebGpuCardProcessor`):** Cada miniatura pasa por un shader WGSL que aplica corrección de color perceptual, micro-contraste, viñeteado suave y zoom dinámico acelerado por hardware (con *fallback* transparente a Canvas 2D si el navegador no dispone de WebGPU).
 
 ### 3. 🔄 Sincronización Automática y Gestión Inteligente de Lectura
-* **Demonio de Sincronización cada 15 minutos:** Actualiza los feeds en segundo plano, deduplica artículos por URL/título normalizado y refresca silenciosamente la interfaz abierta.
+* **`Daemon` (servicio de sincronización en segundo plano) cada 15 minutos:** Actualiza los feeds automáticamente, deduplica artículos por URL/título normalizado y refresca silenciosamente la interfaz abierta.
 * **Auto-lectura al hacer Scroll:** Marca como leídas y retira las fichas que ya has superado al desplazarte hacia abajo (activable/desactivable desde la barra superior).
 * **Menú Desplegable «✓ Marcar como leídas ▾» idéntico a Feedly:**
   1. *Todas las noticias de la vista actual*
